@@ -10,6 +10,20 @@ This project provides automated tools to:
 - Store data in a structured SQLite database for analysis
 - Generate comprehensive reports and statistics
 
+## 🚧 Project Status
+
+**Current Progress:**
+- ✅ **Scripts 01-03**: Fully tested and operational
+- 🔄 **Script 04**: Currently running data collection
+  - Status: Processing county 444/3176 (Habersham County, Georgia)
+  - Progress: ~14% complete
+- ⚠️ **Script 05**: Created but not yet tested
+  - Download functionality implemented
+  - Awaiting completion of script 04 for testing
+
+**Data Collection Status:**
+The project is actively collecting flood risk shapefile metadata from FEMA's portal. Script 04 is currently processing Georgia counties and has successfully collected data from hundreds of counties across multiple states.
+
 ## Project Structure
 
 ```
@@ -32,6 +46,14 @@ This project provides automated tools to:
 ├── meta_results_sample/          # Sample data for testing
 ├── config.json                   # Configuration file for download settings
 ├── config.sample.json            # Sample configuration template
+├── LICENSE                       # MIT License with FEMA data notice
+├── IMPLEMENTATION/               # Detailed implementation documentation
+│   ├── README.md                # Implementation overview
+│   ├── 2025-01-20_01_get_all_state.md
+│   ├── 2025-01-20_02_get_all_counties.md
+│   ├── 2025-01-20_03_get_all_communities.md
+│   ├── 2025-01-20_04_get_flood_risk_shapefiles.md
+│   └── 2025-01-20_05_download_shapefiles.md
 └── .roo/                         # Roo development rules and standards
     ├── rules/                    # General project standards
     └── rules-code/               # Python coding standards
@@ -283,7 +305,12 @@ These rules automatically apply when using Roo Code for development, ensuring co
 
 ## License
 
-This project is for educational and research purposes. FEMA data is public domain.
+This project is licensed under the MIT License - see the [`LICENSE`](LICENSE:1) file for details.
+
+### FEMA Data Usage
+The FEMA flood risk data accessed by this software is in the public domain. According to FEMA's official policy: "All data disseminated by FEMA are considered public information and may be distributed freely, with appropriate citation."
+
+Original data source: [FEMA Map Service Center](https://msc.fema.gov/portal/home)
 
 ## Support
 

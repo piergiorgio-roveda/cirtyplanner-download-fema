@@ -1,0 +1,13 @@
+{
+  "states": [
+    {
+      "value": "01",
+      "text": "ALABAMA"
+    },
+    {
+      "value": "02",
+      "text": "ALASKA"
+    }
+  ],
+  "total_count": 57
+}

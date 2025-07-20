@@ -1,0 +1,22 @@
+{
+  "summary": {
+    "total_states": 57,
+    "total_counties": 3176,
+    "total_communities": 30704,
+    "fetch_timestamp": "2025-07-19 17:43:51 UTC"
+  },
+  "states_summary": [
+    {
+      "state_code": "42",
+      "state_name": "PENNSYLVANIA",
+      "county_count": 67,
+      "community_count": 2655
+    },
+    {
+      "state_code": "48",
+      "state_name": "TEXAS",
+      "county_count": 245,
+      "community_count": 1700
+    }
+  ]
+}

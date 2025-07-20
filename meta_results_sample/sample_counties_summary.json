@@ -1,0 +1,24 @@
+{
+  "summary": {
+    "total_states": 57,
+    "total_counties": 3176,
+    "fetch_timestamp": "2025-07-19 17:36:02 UTC"
+  },
+  "states_summary": [
+    {
+      "state_code": "48",
+      "state_name": "TEXAS",
+      "county_count": 245
+    },
+    {
+      "state_code": "13",
+      "state_name": "GEORGIA",
+      "county_count": 159
+    },
+    {
+      "state_code": "51",
+      "state_name": "VIRGINIA",
+      "county_count": 132
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+[
+    {
+        "label": "ANCHORAGE BOROUGH",
+        "value": "02020"
+    },
+    {
+        "label": "BETHEL CENSUS AREA",
+        "value": "02050"
+    },
+    {
+        "label": "DILLINGHAM CENSUS AREA",
+        "value": "02070"
+    },
+    {
+        "label": "FAIRBANKS NORTH STAR BOROUGH",
+        "value": "02090"
+    },
+    {
+        "label": "HAINES BOROUGH",
+        "value": "02100"
+    },
+    {
+        "label": "JUNEAU BOROUGH",
+        "value": "02110"
+    },
+    {
+        "label": "KENAI PENINSULA BOROUGH",
+        "value": "02122"
+    },
+    {
+        "label": "KETCHIKAN GATEWAY BOROUGH",
+        "value": "02130"
+    },
+    {
+        "label": "LAKE AND PENINSULA BOROUGH",
+        "value": "02164"
+    },
+    {
+        "label": "MATANUSKA-SUSITNA BOROUGH",
+        "value": "02170"
+    },
+    {
+        "label": "NOME CENSUS AREA",
+        "value": "02180"
+    },
+    {
+        "label": "NORTHWEST ARCTIC BOROUGH",
+        "value": "02188"
+    },
+    {
+        "label": "SITKA BOROUGH",
+        "value": "02220"
+    },
+    {
+        "label": "SKAGWAY-HOONAH-ANGOON CENSUS AREA",
+        "value": "02232"
+    },
+    {
+        "label": "SOUTHEAST FAIRBANKS CENSUS AREA",
+        "value": "02240"
+    },
+    {
+        "label": "VALDEZ-CORDOVA CENSUS AREA",
+        "value": "02261"
+    },
+    {
+        "label": "WADE HAMPTON CENSUS AREA",
+        "value": "02270"
+    },
+    {
+        "label": "WRANGELL-PETERSBURG CENSUS AREA",
+        "value": "02280"
+    },
+    {
+        "label": "YUKON-KOYUKUK CENSUS AREA",
+        "value": "02290"
+    }
+]

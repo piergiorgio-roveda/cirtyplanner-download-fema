@@ -1,0 +1,44 @@
+{
+  "metadata": {
+    "total_states": 57,
+    "total_counties": 3176,
+    "total_communities": 30704,
+    "fetch_timestamp": "2025-07-19 17:43:51 UTC"
+  },
+  "states": {
+    "01": {
+      "state_name": "ALABAMA",
+      "state_code": "01",
+      "county_count": 67,
+      "community_count": 632,
+      "counties": {
+        "01001": {
+          "county_name": "AUTAUGA COUNTY",
+          "county_code": "01001",
+          "community_count": 6,
+          "communities": [
+            {
+              "label": "AUTAUGA COUNTY ALL JURISDICTIONS",
+              "value": "01001C"
+            },
+            {
+              "label": "AUTAUGA COUNTY UNINCORPORATED AREAS",
+              "value": "010314"
+            }
+          ]
+        },
+        "78030": {
+          "county_name": "ST. THOMAS",
+          "county_code": "78030",
+          "community_count": 1,
+          "communities": [
+            {
+              "label": "VIRGIN ISLANDS, TERRITORY OF THE",
+              "value": "780000"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

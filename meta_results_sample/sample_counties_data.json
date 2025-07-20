@@ -1,0 +1,29 @@
+{
+  "metadata": {
+    "total_states": 1,
+    "total_counties": 3,
+    "fetch_timestamp": "2025-07-19 17:36:02 UTC",
+    "note": "Sample data extracted from all_counties_data.json - contains 3 sample counties from Alabama"
+  },
+  "states": {
+    "01": {
+      "state_name": "ALABAMA",
+      "state_code": "01",
+      "county_count": 3,
+      "counties": [
+        {
+          "label": "AUTAUGA COUNTY",
+          "value": "01001"
+        },
+        {
+          "label": "BALDWIN COUNTY",
+          "value": "01003"
+        },
+        {
+          "label": "BARBOUR COUNTY",
+          "value": "01005"
+        }
+      ]
+    }
+  }
+}

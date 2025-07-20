@@ -29,7 +29,12 @@ This project provides automated tools to:
 │   ├── all_counties_data.json
 │   ├── all_communities_data.json
 │   └── flood_risk_shapefiles.db # SQLite database
-└── meta_results_sample/          # Sample data for testing
+├── meta_results_sample/          # Sample data for testing
+├── config.json                   # Configuration file for download settings
+├── config.sample.json            # Sample configuration template
+└── .roo/                         # Roo development rules and standards
+    ├── rules/                    # General project standards
+    └── rules-code/               # Python coding standards
 ```
 
 ## Quick Start
@@ -67,6 +72,41 @@ pip install requests sqlite3
    python notebooks/05_download_shapefiles.py
    ```
    Downloads to: `E:\FEMA_DOWNLOAD\{state}\{county}\`
+
+## Configuration
+
+The project uses [`config.json`](config.json:1) for customizable settings. Copy [`config.sample.json`](config.sample.json:1) to `config.json` and customize as needed:
+
+```bash
+cp config.sample.json config.json
+```
+
+```json
+{
+  "download": {
+    "base_path": "E:\\FEMA_DOWNLOAD",
+    "rate_limit_seconds": 0.2,
+    "chunk_size_bytes": 8192,
+    "timeout_seconds": 30
+  },
+  "database": {
+    "path": "meta_results/flood_risk_shapefiles.db"
+  },
+  "api": {
+    "base_url": "https://msc.fema.gov",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+  }
+}
+```
+
+**Configuration Options:**
+- `download.base_path`: Root directory for downloaded files
+- `download.rate_limit_seconds`: Delay between downloads (default: 0.2s)
+- `download.chunk_size_bytes`: Download chunk size (default: 8KB)
+- `download.timeout_seconds`: Request timeout (default: 30s)
+- `database.path`: SQLite database location
+- `api.base_url`: FEMA portal base URL
+- `api.user_agent`: HTTP user agent string
 
 ## Database Schema
 
@@ -212,13 +252,34 @@ Example:
 https://msc.fema.gov/portal/downloadProduct?productTypeID=FLOOD_RISK_PRODUCT&productSubTypeID=FLOOD_RISK_DB&productID=FRD_03150201_shapefiles_20140221
 ```
 
+## Development Standards
+
+This project includes Roo development rules in [`.roo/rules/`](.roo/rules/:1) for consistent code quality:
+
+### Project Standards ([`.roo/rules/01-project-standards.md`](.roo/rules/01-project-standards.md:1))
+- Code quality and documentation requirements
+- Database best practices and security
+- API integration guidelines
+- File organization and naming conventions
+- Configuration management standards
+
+### Python Standards ([`.roo/rules-code/02-python-standards.md`](.roo/rules-code/02-python-standards.md:1))
+- PEP 8 compliance and style guidelines
+- Function documentation with Google-style docstrings
+- Import organization and naming conventions
+- Database operations and API request patterns
+- Error handling and progress tracking best practices
+
+These rules automatically apply when using Roo Code for development, ensuring consistent code quality and maintainability.
+
 ## Contributing
 
 1. Fork the repository
 2. Create a feature branch
-3. Make your changes
-4. Test with sample data
-5. Submit a pull request
+3. Follow the development standards in `.roo/rules/`
+4. Make your changes with proper documentation
+5. Test with sample data
+6. Submit a pull request
 
 ## License
 

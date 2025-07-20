@@ -1,0 +1,15 @@
+{
+  "download": {
+    "base_path": "E:\\FEMA_DOWNLOAD",
+    "rate_limit_seconds": 0.2,
+    "chunk_size_bytes": 8192,
+    "timeout_seconds": 30
+  },
+  "database": {
+    "path": "meta_results/flood_risk_shapefiles.db"
+  },
+  "api": {
+    "base_url": "https://msc.fema.gov",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+  }
+}

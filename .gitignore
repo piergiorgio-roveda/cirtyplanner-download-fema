@@ -193,7 +193,7 @@ $RECYCLE.BIN/
 # Large data files
 meta_results/*.db
 meta_results/*.json
-meta_results_sample/*.json
+notebooks/meta_results/
 
 # Downloaded files
 downloads/
@@ -218,6 +218,7 @@ tmp/
 
 # Configuration files with sensitive data
 config.ini
+config.json
 secrets.json
 .env.local
 .env.production
@@ -252,8 +253,6 @@ htmlcov/
 # Documentation builds
 docs/_build/
 
-meta_results/
-meta/
-notebooks/meta_results/
+
 
 *.pdf

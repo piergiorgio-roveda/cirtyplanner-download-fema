@@ -51,9 +51,9 @@ The project is actively collecting flood risk shapefile metadata from FEMA's por
 │   ├── all_communities_data.json
 │   └── flood_risk_shapefiles.db # SQLite database
 ├── meta_results_sample/          # Sample data for testing
-├── merged/                       # Consolidated GPKG files by state (from script 06)
-│   ├── 01/                      # Alabama - merged shapefiles
-│   ├── 02/                      # Alaska - merged shapefiles
+├── E:\FEMA_MERGED\              # Consolidated GPKG files by state (from script 06)
+│   ├── 01\                      # Alabama - merged shapefiles
+│   ├── 02\                      # Alaska - merged shapefiles
 │   └── ...                      # All states/territories
 ├── config.json                   # Configuration file for processing settings
 ├── config.sample.json            # Sample configuration template
@@ -75,6 +75,12 @@ The project is actively collecting flood risk shapefile metadata from FEMA's por
 
 ### Prerequisites
 
+**Network Requirements:**
+- **VPN connection to USA** may be required for accessing FEMA portal
+- Some regions may experience access restrictions to FEMA's data portal
+- Ensure stable internet connection for large data downloads
+
+**Python Dependencies:**
 ```bash
 pip install requests sqlite3 geopandas fiona shapely pyproj psutil
 ```
@@ -118,7 +124,7 @@ pip install requests sqlite3 geopandas fiona shapely pyproj psutil
    ```bash
    python notebooks/06_extract_and_merge_shapefiles.py
    ```
-   Creates merged GPKG files: `merged\{state_code}\{shapefile_type}.gpkg`
+   Creates merged GPKG files: `E:\FEMA_MERGED\{state_code}\{shapefile_type}.gpkg`
    
    **Force rebuild (if new data found by scripts 04/05):**
    ```bash
@@ -272,8 +278,8 @@ cp config.sample.json config.json
   },
   "processing": {
     "extraction_base_path": "E:\\FEMA_EXTRACTED",
-    "merged_output_path": "merged",
-    "temp_directory": "temp_processing",
+    "merged_output_path": "E:\\FEMA_MERGED",
+    "temp_directory": "E:\\FEMA_TEMP",
     "target_crs": "EPSG:4326",
     "chunk_size_features": 10000,
     "memory_limit_mb": 2048,
@@ -474,13 +480,13 @@ The [`06_extract_and_merge_shapefiles.py`](notebooks/06_extract_and_merge_shapef
 
 **Output Structure:**
 ```
-merged/
-├── 01/                           # Alabama
+E:\FEMA_MERGED\
+├── 01\                           # Alabama
 │   ├── R_UDF_Losses_by_Building.gpkg
 │   ├── R_UDF_Losses_by_Parcel.gpkg
 │   ├── S_CSLF_Ar.gpkg
 │   └── ... (all available shapefile types)
-├── 02/                           # Alaska
+├── 02\                           # Alaska
 └── ... (all 57 states/territories)
 ```
 

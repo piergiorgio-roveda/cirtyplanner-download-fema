@@ -7,8 +7,8 @@
   },
   "processing": {
     "extraction_base_path": "E:\\FEMA_EXTRACTED",
-    "merged_output_path": "merged",
-    "temp_directory": "temp_processing",
+    "merged_output_path": "E:\\FEMA_MERGED",
+    "temp_directory": "E:\\FEMA_TEMP",
     "target_crs": "EPSG:4326",
     "chunk_size_features": 10000,
     "memory_limit_mb": 2048,

@@ -254,3 +254,5 @@ htmlcov/
 docs/_build/
 
 *.pdf
+merged/
+meta_results/flood_risk_shapefiles.db-journal

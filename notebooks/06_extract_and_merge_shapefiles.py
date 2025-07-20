@@ -140,37 +140,41 @@ def setup_logging(verbose=False):
 
 def load_config(config_path='config.json'):
     """Load configuration from JSON file with processing extensions."""
-    if not os.path.exists(config_path):
-        # Create default config with processing extensions
-        default_config = {
-            "download": {
-                "base_path": "E:\\FEMA_DOWNLOAD"
-            },
-            "processing": {
-                "extraction_base_path": "E:\\FEMA_EXTRACTED",
-                "merged_output_path": "merged",
-                "temp_directory": "temp_processing",
-                "target_crs": "EPSG:4326",
-                "chunk_size_features": 10000,
-                "memory_limit_mb": 2048,
-                "parallel_processing": True,
-                "max_workers": 4
-            },
-            "validation": {
-                "geometry_validation": True,
-                "fix_invalid_geometries": True,
-                "skip_empty_geometries": True,
-                "coordinate_precision": 6
-            },
-            "database": {
-                "path": "meta_results/flood_risk_shapefiles.db"
-            },
-            "api": {
-                "base_url": "https://msc.fema.gov",
-                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            }
+    # Default configuration with all required sections
+    default_config = {
+        "download": {
+            "base_path": "E:\\FEMA_DOWNLOAD",
+            "rate_limit_seconds": 0.2,
+            "chunk_size_bytes": 8192,
+            "timeout_seconds": 30
+        },
+        "processing": {
+            "extraction_base_path": "E:\\FEMA_EXTRACTED",
+            "merged_output_path": "E:\\FEMA_MERGED",
+            "temp_directory": "E:\\FEMA_TEMP",
+            "target_crs": "EPSG:4326",
+            "chunk_size_features": 10000,
+            "memory_limit_mb": 2048,
+            "parallel_processing": True,
+            "max_workers": 4
+        },
+        "validation": {
+            "geometry_validation": True,
+            "fix_invalid_geometries": True,
+            "skip_empty_geometries": True,
+            "coordinate_precision": 6
+        },
+        "database": {
+            "path": "meta_results/flood_risk_shapefiles.db"
+        },
+        "api": {
+            "base_url": "https://msc.fema.gov",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
-        
+    }
+    
+    if not os.path.exists(config_path):
+        # Create default config file
         with open(config_path, 'w') as f:
             json.dump(default_config, f, indent=2)
         
@@ -179,8 +183,18 @@ def load_config(config_path='config.json'):
     
     try:
         with open(config_path, 'r') as f:
-            config = json.load(f)
+            user_config = json.load(f)
+        
+        # Merge user config with defaults (user config takes precedence)
+        config = default_config.copy()
+        for section, values in user_config.items():
+            if section in config and isinstance(values, dict):
+                config[section].update(values)
+            else:
+                config[section] = values
+        
         return config
+        
     except json.JSONDecodeError as e:
         raise ValueError(f"Invalid JSON in config file {config_path}: {e}")
     except Exception as e:

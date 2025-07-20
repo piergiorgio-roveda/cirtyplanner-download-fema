@@ -8,6 +8,13 @@ This script:
 3. Makes POST requests to FEMA portal for each combination
 4. Extracts FLOOD_RISK_DB items where product_DESCRIPTION = "ShapeFiles"
 5. Stores the relevant shapefile information in SQLite database
+6. Automatically resumes from where it left off if interrupted
+
+Resume Capability:
+- Checks request_log table for already processed communities
+- Skips communities that have been successfully processed
+- Can be safely restarted after network interruptions
+- Shows progress: processed this run vs. skipped (already done)
 """
 
 import json
@@ -269,6 +276,12 @@ def fetch_flood_risk_data(conn, state_code, county_code, community_code, communi
             'shapefiles_found': 0
         }
 
+def get_processed_communities(conn):
+    """Get set of already processed communities."""
+    cursor = conn.cursor()
+    cursor.execute('SELECT community_code FROM request_log')
+    return set(row[0] for row in cursor.fetchall())
+
 def get_statistics(conn):
     """Get statistics from the database."""
     cursor = conn.cursor()
@@ -373,9 +386,14 @@ def main():
     # Populate base data
     populate_base_data(conn, counties_data, communities_data)
     
+    # Get already processed communities for resume capability
+    processed_communities = get_processed_communities(conn)
+    print(f"Found {len(processed_communities)} already processed communities")
+    
     total_processed = 0
     total_shapefiles_found = 0
     county_processed = 0
+    skipped_count = 0
     
     # Process each state
     for state_code, state_info in communities_data['states'].items():
@@ -397,6 +415,12 @@ def main():
             for community in county_info['communities']:
                 community_code = community['value']
                 community_name = community['label']
+                
+                # Skip if already processed
+                if community_code in processed_communities:
+                    print(f"    Skipping already processed community: {community_name} ({community_code})")
+                    skipped_count += 1
+                    continue
                 
                 print(f"    Processing community: {community_name} ({community_code})")
                 
@@ -428,7 +452,9 @@ def main():
     print("=" * 60)
     print(f"Total states processed: {stats['total_states']}")
     print(f"Total counties processed: {stats['total_counties']}")
-    print(f"Total communities processed: {stats['total_communities']}")
+    print(f"Total communities in database: {stats['total_communities']}")
+    print(f"Communities processed this run: {total_processed}")
+    print(f"Communities skipped (already processed): {skipped_count}")
     print(f"Total shapefiles found: {stats['total_shapefiles']}")
     print(f"Successful requests: {stats['successful_requests']}")
     print(f"Failed requests: {stats['failed_requests']}")

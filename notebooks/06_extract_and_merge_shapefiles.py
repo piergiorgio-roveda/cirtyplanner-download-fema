@@ -27,6 +27,12 @@ Usage:
     
     # Resume interrupted processing:
     python notebooks/06_extract_and_merge_shapefiles.py --resume
+    
+    # Force rebuild from scratch (if script 04/05 found new data):
+    python notebooks/06_extract_and_merge_shapefiles.py --force-rebuild
+    
+    # Force rebuild specific states only:
+    python notebooks/06_extract_and_merge_shapefiles.py --force-rebuild --states 01,02
 """
 
 import geopandas as gpd
@@ -944,6 +950,54 @@ def cleanup_temporary_files(config, logger=None):
             except Exception as e:
                 logger.warning(f"Failed to clean up {cleanup_dir}: {e}")
 
+def clear_processing_logs(conn, target_states=None, logger=None):
+    """Clear all processing logs to force rebuild from scratch."""
+    logger = logger or logging.getLogger(__name__)
+    
+    cursor = conn.cursor()
+    
+    if target_states:
+        state_placeholders = ','.join(['?' for _ in target_states])
+        
+        # Clear extraction logs for target states
+        cursor.execute(f'''
+            DELETE FROM extraction_log
+            WHERE state_code IN ({state_placeholders})
+        ''', target_states)
+        
+        # Clear processing logs for target states
+        cursor.execute(f'''
+            DELETE FROM shapefile_processing_log
+            WHERE state_code IN ({state_placeholders})
+        ''', target_states)
+        
+        # Clear contribution logs for target states
+        cursor.execute(f'''
+            DELETE FROM shapefile_contributions
+            WHERE state_code IN ({state_placeholders})
+        ''', target_states)
+        
+        logger.info(f"Cleared processing logs for states: {target_states}")
+    else:
+        # Clear all processing logs
+        cursor.execute('DELETE FROM extraction_log')
+        cursor.execute('DELETE FROM shapefile_processing_log')
+        cursor.execute('DELETE FROM shapefile_contributions')
+        
+        logger.info("Cleared all processing logs")
+    
+    conn.commit()
+    
+    # Get counts after clearing
+    cursor.execute('SELECT COUNT(*) FROM extraction_log')
+    extraction_count = cursor.fetchone()[0]
+    cursor.execute('SELECT COUNT(*) FROM shapefile_processing_log')
+    processing_count = cursor.fetchone()[0]
+    cursor.execute('SELECT COUNT(*) FROM shapefile_contributions')
+    contribution_count = cursor.fetchone()[0]
+    
+    logger.info(f"Remaining logs: {extraction_count} extractions, {processing_count} processing, {contribution_count} contributions")
+
 def main():
     """Main processing function."""
     # Parse command line arguments
@@ -951,6 +1005,7 @@ def main():
     parser.add_argument('--config', default='config.json', help='Configuration file path')
     parser.add_argument('--states', help='Comma-separated list of state codes to process (e.g., 01,02,04)')
     parser.add_argument('--resume', action='store_true', help='Resume interrupted processing')
+    parser.add_argument('--force-rebuild', action='store_true', help='Force rebuild - clear all processing logs and start from scratch')
     parser.add_argument('--dry-run', action='store_true', help='Show what would be processed without doing it')
     parser.add_argument('--verbose', action='store_true', help='Enable verbose logging')
     parser.add_argument('--no-cleanup', action='store_true', help='Skip cleanup of temporary files')
@@ -973,6 +1028,30 @@ def main():
         
         config = load_config(args.config)
         conn = setup_database(config)
+        
+        # Handle force rebuild option
+        if args.force_rebuild:
+            logger.info("FORCE REBUILD MODE - Clearing all processing logs")
+            clear_processing_logs(conn, target_states, logger)
+            
+            # Also remove existing GPKG files for target states
+            output_base = config['processing']['merged_output_path']
+            if target_states:
+                for state_code in target_states:
+                    state_output_dir = os.path.join(output_base, state_code)
+                    if os.path.exists(state_output_dir):
+                        try:
+                            shutil.rmtree(state_output_dir)
+                            logger.info(f"Removed existing output directory: {state_output_dir}")
+                        except Exception as e:
+                            logger.warning(f"Failed to remove {state_output_dir}: {e}")
+            else:
+                if os.path.exists(output_base):
+                    try:
+                        shutil.rmtree(output_base)
+                        logger.info(f"Removed existing output directory: {output_base}")
+                    except Exception as e:
+                        logger.warning(f"Failed to remove {output_base}: {e}")
         
         if args.dry_run:
             logger.info("DRY RUN MODE - No actual processing will be performed")

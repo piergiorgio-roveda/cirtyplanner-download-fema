@@ -4,11 +4,17 @@ Script to download all flood risk shapefiles from the SQLite database.
 
 This script:
 1. Reads shapefile data from the SQLite database
-2. Downloads each shapefile ZIP from FEMA portal
+2. Downloads each shapefile ZIP from FEMA portal using correct URL format
 3. Organizes files in folder structure: {base_path}\{state}\{county}\
 4. Tracks download progress and handles errors
-5. Resumes interrupted downloads
+5. Resumes interrupted downloads (skips already downloaded files)
 6. Uses configuration file for settings
+7. Supports limiting downloads for testing (--limit option)
+
+Usage:
+    python notebooks/05_download_shapefiles.py                    # Download all
+    python notebooks/05_download_shapefiles.py --limit 10         # Download first 10 not yet downloaded
+    python notebooks/05_download_shapefiles.py --config my.json   # Use custom config
 """
 
 import sqlite3
@@ -16,6 +22,7 @@ import requests
 import os
 import time
 import json
+import argparse
 from datetime import datetime
 from urllib.parse import urljoin
 import hashlib
@@ -94,15 +101,10 @@ def create_download_folder(base_path, state_code, county_code):
     os.makedirs(folder_path, exist_ok=True)
     return folder_path
 
-def get_download_url(product_file_path):
-    """Construct the full download URL from the file path."""
-    base_url = "https://msc.fema.gov"
-    
-    # Handle different path formats
-    if product_file_path.startswith('/'):
-        return urljoin(base_url, product_file_path)
-    else:
-        return urljoin(base_url + '/', product_file_path)
+def get_download_url(product_name):
+    """Construct the full download URL using the correct FEMA format."""
+    base_url = "https://msc.fema.gov/portal/downloadProduct"
+    return f"{base_url}?productTypeID=FLOOD_RISK_PRODUCT&productSubTypeID=FLOOD_RISK_DB&productID={product_name}"
 
 def get_file_hash(filepath):
     """Calculate MD5 hash of a file for integrity checking."""
@@ -149,16 +151,20 @@ def download_file(url, filepath, expected_size=None, config=None):
         
         with open(filepath, mode) as f:
             downloaded = resume_pos
+            last_progress_mb = downloaded // (1024 * 1024)
+            
             for chunk in response.iter_content(chunk_size=config['download']['chunk_size_bytes']):
                 if chunk:
                     f.write(chunk)
                     downloaded += len(chunk)
                     
-                    # Progress update every MB
-                    if downloaded % (1024 * 1024) == 0:
+                    # Progress update every 10MB to reduce spam
+                    current_mb = downloaded // (1024 * 1024)
+                    if current_mb >= last_progress_mb + 10:  # Every 10MB
                         if total_size > 0:
                             percent = (downloaded / total_size) * 100
-                            print(f"    Progress: {downloaded // (1024*1024)}MB / {total_size // (1024*1024)}MB ({percent:.1f}%)")
+                            print(f"    Progress: {current_mb}MB / {total_size // (1024*1024)}MB ({percent:.1f}%)")
+                        last_progress_mb = current_mb
         
         print(f"    ✓ Downloaded: {os.path.basename(filepath)} ({downloaded // (1024*1024)}MB)")
         return True
@@ -232,12 +238,21 @@ def parse_file_size(size_str):
 
 def main():
     """Main function to download all shapefiles."""
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Download FEMA flood risk shapefiles')
+    parser.add_argument('--limit', type=int, help='Limit number of files to download (for testing)')
+    parser.add_argument('--config', default='config.json', help='Configuration file path')
+    
+    args = parser.parse_args()
+    
     print("Starting FEMA Shapefile Download Process...")
+    if args.limit:
+        print(f"TESTING MODE: Limited to {args.limit} files")
     print("=" * 60)
     
     # Load configuration
     try:
-        config = load_config()
+        config = load_config(args.config)
         print(f"Configuration loaded successfully")
     except Exception as e:
         print(f"Error loading configuration: {e}")
@@ -275,6 +290,24 @@ def main():
     # Get already downloaded files
     downloaded_files = get_downloaded_files(conn)
     
+    # Filter out already downloaded files
+    files_to_download = []
+    for shapefile in shapefiles:
+        product_name = shapefile[3]  # product_name is at index 3
+        if product_name not in downloaded_files:
+            files_to_download.append(shapefile)
+    
+    print(f"Files already downloaded: {len(downloaded_files)}")
+    print(f"Files remaining to download: {len(files_to_download)}")
+    
+    # Apply limit if specified
+    if args.limit and len(files_to_download) > args.limit:
+        files_to_download = files_to_download[:args.limit]
+        print(f"Limited to first {args.limit} files for testing")
+    
+    print(f"Will download {len(files_to_download)} files")
+    print("=" * 60)
+    
     # Create base download directory
     os.makedirs(download_base_path, exist_ok=True)
     
@@ -285,21 +318,15 @@ def main():
     total_size_downloaded = 0
     
     # Process each shapefile
-    for i, shapefile in enumerate(shapefiles, 1):
+    for i, shapefile in enumerate(files_to_download, 1):
         (state_code, county_code, community_code, product_name, 
          product_file_path, product_file_size, state_name, county_name, community_name) = shapefile
         
-        print(f"\n[{i}/{total_files}] Processing: {product_name}")
+        print(f"\n[{i}/{len(files_to_download)}] Processing: {product_name}")
         print(f"  State: {state_name} ({state_code})")
         print(f"  County: {county_name} ({county_code})")
         print(f"  Community: {community_name} ({community_code})")
         print(f"  Size: {product_file_size}")
-        
-        # Skip if already downloaded
-        if product_name in downloaded_files:
-            print(f"  ⏭ Already downloaded, skipping...")
-            skipped_count += 1
-            continue
         
         # Create download folder
         download_folder = create_download_folder(download_base_path, state_code, county_code)
@@ -309,7 +336,7 @@ def main():
         filepath = os.path.join(download_folder, filename)
         
         # Get download URL
-        download_url = get_download_url(product_file_path)
+        download_url = get_download_url(product_name)
         print(f"  URL: {download_url}")
         
         # Parse expected file size
@@ -334,11 +361,10 @@ def main():
                               product_name, product_file_path, False, error_msg="Download failed")
         
         # Progress summary
-        if i % 10 == 0 or i == total_files:
-            print(f"\n  Progress Summary: {i}/{total_files} processed")
+        if i % 10 == 0 or i == len(files_to_download):
+            print(f"\n  Progress Summary: {i}/{len(files_to_download)} processed")
             print(f"    Downloaded: {downloaded_count}")
             print(f"    Failed: {failed_count}")
-            print(f"    Skipped: {skipped_count}")
             print(f"    Total size: {total_size_downloaded // (1024*1024)}MB")
         
         # Rate limiting
@@ -348,10 +374,11 @@ def main():
     print("\n" + "=" * 60)
     print("DOWNLOAD PROCESS COMPLETE")
     print("=" * 60)
-    print(f"Total files processed: {total_files}")
+    print(f"Total files in database: {total_files}")
+    print(f"Files already downloaded: {len(downloaded_files)}")
+    print(f"Files processed this run: {len(files_to_download)}")
     print(f"Successfully downloaded: {downloaded_count}")
     print(f"Failed downloads: {failed_count}")
-    print(f"Already existed (skipped): {skipped_count}")
     print(f"Total data downloaded: {total_size_downloaded // (1024*1024)}MB")
     print(f"Download location: {download_base_path}")
     

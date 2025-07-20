@@ -100,18 +100,159 @@ pip install requests sqlite3 geopandas fiona shapely pyproj psutil
    ```bash
    python notebooks/04_get_flood_risk_shapefiles.py
    ```
+   **Automatic resume capability** - safely restarts after network interruptions
 
 5. **Download All Shapefiles**:
    ```bash
    python notebooks/05_download_shapefiles.py
    ```
    Downloads to: `E:\FEMA_DOWNLOAD\{state}\{county}\`
+   
+   **Testing with limited downloads:**
+   ```bash
+   python notebooks/05_download_shapefiles.py --limit 10
+   ```
+   Downloads only the first 10 files not yet downloaded
 
 6. **Extract and Merge Shapefiles**:
    ```bash
    python notebooks/06_extract_and_merge_shapefiles.py
    ```
    Creates merged GPKG files: `merged\{state_code}\{shapefile_type}.gpkg`
+   
+   **Force rebuild (if new data found by scripts 04/05):**
+   ```bash
+   python notebooks/06_extract_and_merge_shapefiles.py --force-rebuild
+   ```
+   Clears all processing logs and rebuilds from scratch
+
+## Command Line Options
+
+### Script 05: Download Shapefiles
+
+```bash
+# Basic usage
+python notebooks/05_download_shapefiles.py
+
+# Available options:
+python notebooks/05_download_shapefiles.py [OPTIONS]
+
+Options:
+  --limit N              Download only first N files not yet downloaded (for testing)
+  --config PATH          Use custom configuration file (default: config.json)
+  -h, --help            Show help message and exit
+```
+
+**Examples:**
+```bash
+# Test with first 10 files
+python notebooks/05_download_shapefiles.py --limit 10
+
+# Use custom configuration
+python notebooks/05_download_shapefiles.py --config my_config.json
+
+# Download all remaining files
+python notebooks/05_download_shapefiles.py
+```
+
+### Script 06: Extract and Merge Shapefiles
+
+```bash
+# Basic usage
+python notebooks/06_extract_and_merge_shapefiles.py
+
+# Available options:
+python notebooks/06_extract_and_merge_shapefiles.py [OPTIONS]
+
+Options:
+  --config PATH          Use custom configuration file (default: config.json)
+  --states CODES         Process specific states only (comma-separated, e.g., 01,02,04)
+  --resume              Resume interrupted processing (default behavior)
+  --force-rebuild       Clear all processing logs and rebuild from scratch
+  --dry-run             Show what would be processed without doing it
+  --verbose             Enable verbose logging
+  --no-cleanup          Skip cleanup of temporary files
+  -h, --help            Show help message and exit
+```
+
+**Examples:**
+```bash
+# Normal processing (resumes automatically)
+python notebooks/06_extract_and_merge_shapefiles.py
+
+# Process specific states only
+python notebooks/06_extract_and_merge_shapefiles.py --states 01,02,04
+
+# Force complete rebuild (when new data found)
+python notebooks/06_extract_and_merge_shapefiles.py --force-rebuild
+
+# Force rebuild specific states only
+python notebooks/06_extract_and_merge_shapefiles.py --force-rebuild --states 01,02
+
+# Dry run to see what would be processed
+python notebooks/06_extract_and_merge_shapefiles.py --dry-run
+
+# Verbose logging for debugging
+python notebooks/06_extract_and_merge_shapefiles.py --verbose
+
+# Keep temporary files for inspection
+python notebooks/06_extract_and_merge_shapefiles.py --no-cleanup
+```
+
+## Common Workflows
+
+### Initial Setup and Testing
+```bash
+# 1. Test download with small batch
+python notebooks/05_download_shapefiles.py --limit 10
+
+# 2. Test extraction on specific state
+python notebooks/06_extract_and_merge_shapefiles.py --states 01 --verbose
+
+# 3. If tests successful, download all
+python notebooks/05_download_shapefiles.py
+
+# 4. Extract and merge all
+python notebooks/06_extract_and_merge_shapefiles.py
+```
+
+### Handling New Data Updates
+```bash
+# When script 04 finds new communities or script 05 downloads new files:
+
+# Option 1: Force rebuild everything
+python notebooks/06_extract_and_merge_shapefiles.py --force-rebuild
+
+# Option 2: Force rebuild specific states only
+python notebooks/06_extract_and_merge_shapefiles.py --force-rebuild --states 01,02,04
+
+# Option 3: Check what would be rebuilt (dry run)
+python notebooks/06_extract_and_merge_shapefiles.py --force-rebuild --dry-run
+```
+
+### Troubleshooting and Debugging
+```bash
+# Check what would be processed without doing it
+python notebooks/06_extract_and_merge_shapefiles.py --dry-run --verbose
+
+# Process with detailed logging and keep temp files
+python notebooks/06_extract_and_merge_shapefiles.py --verbose --no-cleanup
+
+# Process specific problematic state with full logging
+python notebooks/06_extract_and_merge_shapefiles.py --states 01 --verbose --no-cleanup
+```
+
+### Production Workflows
+```bash
+# Resume normal processing (default behavior)
+python notebooks/06_extract_and_merge_shapefiles.py
+
+# Process specific states in production
+python notebooks/06_extract_and_merge_shapefiles.py --states 01,02,04,05
+
+# Full rebuild for data refresh
+python notebooks/06_extract_and_merge_shapefiles.py --force-rebuild
+```
 
 ## Configuration
 

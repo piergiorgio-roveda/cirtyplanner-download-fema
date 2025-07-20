@@ -948,13 +948,32 @@ def generate_final_report(extraction_results, merging_results, validation_result
     logger.info("\n" + "=" * 80)
 
 def cleanup_temporary_files(config, logger=None):
-    """Clean up temporary extraction files."""
+    """Clean up temporary extraction files.
+    
+    IMPORTANT: This function ONLY removes temporary processing files.
+    It NEVER touches the original ZIP files in the download directory.
+    
+    Removes:
+    - extraction_base_path: Temporary extracted shapefiles (E:\FEMA_EXTRACTED)
+    - temp_directory: Temporary processing files (E:\FEMA_TEMP)
+    
+    Preserves:
+    - download.base_path: Original ZIP files (E:\FEMA_DOWNLOAD) - NEVER REMOVED
+    """
     logger = logger or logging.getLogger(__name__)
     
     extraction_base = config['processing']['extraction_base_path']
     temp_dir = config['processing']['temp_directory']
     
+    # SAFETY CHECK: Never clean up the download directory with original ZIP files
+    download_dir = config['download']['base_path']
     cleanup_dirs = [extraction_base, temp_dir]
+    
+    # Verify we're not accidentally including the download directory
+    for cleanup_dir in cleanup_dirs:
+        if cleanup_dir == download_dir:
+            logger.error(f"SAFETY ERROR: Attempted to clean up download directory {download_dir} - ABORTING CLEANUP")
+            return
     
     for cleanup_dir in cleanup_dirs:
         if os.path.exists(cleanup_dir):
@@ -1049,7 +1068,14 @@ def main():
             clear_processing_logs(conn, target_states, logger)
             
             # Also remove existing GPKG files for target states
+            # IMPORTANT: This only removes output GPKG files, NEVER the original ZIP files
             output_base = config['processing']['merged_output_path']
+            download_dir = config['download']['base_path']
+            
+            # Safety check: Ensure we're not accidentally targeting the download directory
+            if output_base == download_dir:
+                logger.error(f"SAFETY ERROR: Output directory same as download directory - ABORTING FORCE REBUILD")
+                return
             if target_states:
                 for state_code in target_states:
                     state_output_dir = os.path.join(output_base, state_code)

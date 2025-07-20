@@ -1,0 +1,36 @@
+MIT License
+
+Copyright (c) 2025 FEMA Flood Risk Data Collector
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+FEMA Data Notice:
+This software collects data from FEMA's Map Service Center, which provides 
+public domain flood risk data. According to FEMA's official data use policy:
+
+"All data disseminated by FEMA are considered public information and may be 
+distributed freely, with appropriate citation."
+
+Original data source: FEMA Map Service Center (https://msc.fema.gov/portal/home)
+
+The FEMA data itself is in the public domain and not subject to copyright 
+restrictions. FEMA encourages the use, adaptation, and distribution of these 
+datasets to increase flood risk awareness and preparedness.

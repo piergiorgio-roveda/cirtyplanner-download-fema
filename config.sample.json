@@ -5,6 +5,22 @@
     "chunk_size_bytes": 8192,
     "timeout_seconds": 30
   },
+  "processing": {
+    "extraction_base_path": "E:\\FEMA_EXTRACTED",
+    "merged_output_path": "merged",
+    "temp_directory": "temp_processing",
+    "target_crs": "EPSG:4326",
+    "chunk_size_features": 10000,
+    "memory_limit_mb": 2048,
+    "parallel_processing": true,
+    "max_workers": 4
+  },
+  "validation": {
+    "geometry_validation": true,
+    "fix_invalid_geometries": true,
+    "skip_empty_geometries": true,
+    "coordinate_precision": 6
+  },
   "database": {
     "path": "meta_results/flood_risk_shapefiles.db"
   },

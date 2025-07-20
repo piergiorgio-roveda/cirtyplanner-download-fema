@@ -7,6 +7,8 @@ A comprehensive Python toolkit for collecting and analyzing FEMA flood risk shap
 This project provides automated tools to:
 - Extract state, county, and community data from FEMA's portal
 - Collect flood risk shapefile information for all jurisdictions
+- Download all available shapefile ZIP files
+- Extract and merge shapefiles into consolidated GPKG files by state and type
 - Store data in a structured SQLite database for analysis
 - Generate comprehensive reports and statistics
 
@@ -20,6 +22,10 @@ This project provides automated tools to:
 - ⚠️ **Script 05**: Created but not yet tested
   - Download functionality implemented
   - Awaiting completion of script 04 for testing
+- 🚧 **Script 06**: Implementation complete
+  - Extract and merge shapefiles functionality
+  - Creates consolidated GPKG files by state and shapefile type
+  - Comprehensive validation and error handling
 
 **Data Collection Status:**
 The project is actively collecting flood risk shapefile metadata from FEMA's portal. Script 04 is currently processing Georgia counties and has successfully collected data from hundreds of counties across multiple states.
@@ -32,7 +38,8 @@ The project is actively collecting flood risk shapefile metadata from FEMA's por
 │   ├── 02_get_all_counties.py   # Extract counties for each state
 │   ├── 03_get_all_communities.py # Extract communities for each county
 │   ├── 04_get_flood_risk_shapefiles.py # Collect shapefile data
-│   └── 05_download_shapefiles.py # Download all shapefile ZIP files
+│   ├── 05_download_shapefiles.py # Download all shapefile ZIP files
+│   └── 06_extract_and_merge_shapefiles.py # Extract ZIPs and merge to GPKG
 ├── meta/                         # Reference HTML/JSON files
 │   ├── state.html               # FEMA state dropdown HTML
 │   ├── advanceSearch-getCounty.json
@@ -44,7 +51,11 @@ The project is actively collecting flood risk shapefile metadata from FEMA's por
 │   ├── all_communities_data.json
 │   └── flood_risk_shapefiles.db # SQLite database
 ├── meta_results_sample/          # Sample data for testing
-├── config.json                   # Configuration file for download settings
+├── merged/                       # Consolidated GPKG files by state (from script 06)
+│   ├── 01/                      # Alabama - merged shapefiles
+│   ├── 02/                      # Alaska - merged shapefiles
+│   └── ...                      # All states/territories
+├── config.json                   # Configuration file for processing settings
 ├── config.sample.json            # Sample configuration template
 ├── LICENSE                       # MIT License with FEMA data notice
 ├── IMPLEMENTATION/               # Detailed implementation documentation
@@ -53,7 +64,8 @@ The project is actively collecting flood risk shapefile metadata from FEMA's por
 │   ├── 2025-01-20_02_get_all_counties.md
 │   ├── 2025-01-20_03_get_all_communities.md
 │   ├── 2025-01-20_04_get_flood_risk_shapefiles.md
-│   └── 2025-01-20_05_download_shapefiles.md
+│   ├── 2025-01-20_05_download_shapefiles.md
+│   └── 2025-01-20_06_extract_and_merge_shapefiles.md
 └── .roo/                         # Roo development rules and standards
     ├── rules/                    # General project standards
     └── rules-code/               # Python coding standards
@@ -64,7 +76,7 @@ The project is actively collecting flood risk shapefile metadata from FEMA's por
 ### Prerequisites
 
 ```bash
-pip install requests sqlite3
+pip install requests sqlite3 geopandas fiona shapely pyproj psutil
 ```
 
 ### Usage
@@ -95,6 +107,12 @@ pip install requests sqlite3
    ```
    Downloads to: `E:\FEMA_DOWNLOAD\{state}\{county}\`
 
+6. **Extract and Merge Shapefiles**:
+   ```bash
+   python notebooks/06_extract_and_merge_shapefiles.py
+   ```
+   Creates merged GPKG files: `merged\{state_code}\{shapefile_type}.gpkg`
+
 ## Configuration
 
 The project uses [`config.json`](config.json:1) for customizable settings. Copy [`config.sample.json`](config.sample.json:1) to `config.json` and customize as needed:
@@ -111,6 +129,22 @@ cp config.sample.json config.json
     "chunk_size_bytes": 8192,
     "timeout_seconds": 30
   },
+  "processing": {
+    "extraction_base_path": "E:\\FEMA_EXTRACTED",
+    "merged_output_path": "merged",
+    "temp_directory": "temp_processing",
+    "target_crs": "EPSG:4326",
+    "chunk_size_features": 10000,
+    "memory_limit_mb": 2048,
+    "parallel_processing": true,
+    "max_workers": 4
+  },
+  "validation": {
+    "geometry_validation": true,
+    "fix_invalid_geometries": true,
+    "skip_empty_geometries": true,
+    "coordinate_precision": 6
+  },
   "database": {
     "path": "meta_results/flood_risk_shapefiles.db"
   },
@@ -126,6 +160,12 @@ cp config.sample.json config.json
 - `download.rate_limit_seconds`: Delay between downloads (default: 0.2s)
 - `download.chunk_size_bytes`: Download chunk size (default: 8KB)
 - `download.timeout_seconds`: Request timeout (default: 30s)
+- `processing.extraction_base_path`: Temporary extraction directory
+- `processing.merged_output_path`: Output directory for merged GPKG files
+- `processing.target_crs`: Target coordinate system (default: EPSG:4326)
+- `processing.memory_limit_mb`: Memory limit for processing (default: 2048MB)
+- `validation.geometry_validation`: Enable geometry validation
+- `validation.fix_invalid_geometries`: Automatically fix invalid geometries
 - `database.path`: SQLite database location
 - `api.base_url`: FEMA portal base URL
 - `api.user_agent`: HTTP user agent string
@@ -140,6 +180,10 @@ The SQLite database (`meta_results/flood_risk_shapefiles.db`) contains:
 - **`communities`**: Community information linked to counties
 - **`shapefiles`**: Flood risk shapefile metadata
 - **`request_log`**: API call tracking and error logging
+- **`download_log`**: Download tracking (from script 05)
+- **`extraction_log`**: ZIP extraction tracking (from script 06)
+- **`shapefile_processing_log`**: GPKG creation tracking (from script 06)
+- **`shapefile_contributions`**: Individual shapefile contributions (from script 06)
 
 ### Key Fields
 - `product_ID`: Unique FEMA product identifier
@@ -273,6 +317,37 @@ Example:
 ```
 https://msc.fema.gov/portal/downloadProduct?productTypeID=FLOOD_RISK_PRODUCT&productSubTypeID=FLOOD_RISK_DB&productID=FRD_03150201_shapefiles_20140221
 ```
+
+## Extraction and Merging Functionality
+
+### Automated Processing
+The [`06_extract_and_merge_shapefiles.py`](notebooks/06_extract_and_merge_shapefiles.py:1) script processes downloaded ZIP files:
+
+**Features:**
+- **ZIP Extraction**: Extracts all downloaded ZIP files to temporary directories
+- **Shapefile Categorization**: Identifies and categorizes 13 shapefile types
+- **State-based Merging**: Merges shapefiles by type within each state
+- **Metadata Enrichment**: Adds geographic traceability columns
+- **GPKG Output**: Creates consolidated GeoPackage files
+- **Validation**: Comprehensive integrity and geometry validation
+
+**Output Structure:**
+```
+merged/
+├── 01/                           # Alabama
+│   ├── R_UDF_Losses_by_Building.gpkg
+│   ├── R_UDF_Losses_by_Parcel.gpkg
+│   ├── S_CSLF_Ar.gpkg
+│   └── ... (all available shapefile types)
+├── 02/                           # Alaska
+└── ... (all 57 states/territories)
+```
+
+**Processing Tracking:**
+- Creates `extraction_log`, `shapefile_processing_log`, and `shapefile_contributions` tables
+- Tracks extraction success/failure for each ZIP file
+- Records processing statistics and file sizes
+- Enables resume capability for interrupted processing
 
 ## Development Standards
 

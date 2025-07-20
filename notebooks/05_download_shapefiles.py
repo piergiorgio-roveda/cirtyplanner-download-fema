@@ -5,18 +5,55 @@ Script to download all flood risk shapefiles from the SQLite database.
 This script:
 1. Reads shapefile data from the SQLite database
 2. Downloads each shapefile ZIP from FEMA portal
-3. Organizes files in folder structure: E:\FEMA_DOWNLOAD\{state}\{county}\
+3. Organizes files in folder structure: {base_path}\{state}\{county}\
 4. Tracks download progress and handles errors
 5. Resumes interrupted downloads
+6. Uses configuration file for settings
 """
 
 import sqlite3
 import requests
 import os
 import time
+import json
 from datetime import datetime
 from urllib.parse import urljoin
 import hashlib
+
+def load_config(config_path='config.json'):
+    """Load configuration from JSON file."""
+    if not os.path.exists(config_path):
+        # Create default config if it doesn't exist
+        default_config = {
+            "download": {
+                "base_path": "E:\\FEMA_DOWNLOAD",
+                "rate_limit_seconds": 0.2,
+                "chunk_size_bytes": 8192,
+                "timeout_seconds": 30
+            },
+            "database": {
+                "path": "meta_results/flood_risk_shapefiles.db"
+            },
+            "api": {
+                "base_url": "https://msc.fema.gov",
+                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            }
+        }
+        
+        with open(config_path, 'w') as f:
+            json.dump(default_config, f, indent=2)
+        
+        print(f"Created default configuration file: {config_path}")
+        return default_config
+    
+    try:
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        return config
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON in config file {config_path}: {e}")
+    except Exception as e:
+        raise ValueError(f"Error reading config file {config_path}: {e}")
 
 def connect_database(db_path):
     """Connect to the SQLite database."""
@@ -78,10 +115,13 @@ def get_file_hash(filepath):
     except Exception:
         return None
 
-def download_file(url, filepath, expected_size=None):
+def download_file(url, filepath, expected_size=None, config=None):
     """Download a file with progress tracking and resume capability."""
+    if config is None:
+        config = load_config()
+    
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        'User-Agent': config['api']['user_agent']
     }
     
     # Check if file already exists and get its size
@@ -94,7 +134,7 @@ def download_file(url, filepath, expected_size=None):
         headers['Range'] = f'bytes={resume_pos}-'
     
     try:
-        response = requests.get(url, headers=headers, stream=True, timeout=30)
+        response = requests.get(url, headers=headers, stream=True, timeout=config['download']['timeout_seconds'])
         
         # Handle range request responses
         if response.status_code == 206:  # Partial content
@@ -109,7 +149,7 @@ def download_file(url, filepath, expected_size=None):
         
         with open(filepath, mode) as f:
             downloaded = resume_pos
-            for chunk in response.iter_content(chunk_size=8192):
+            for chunk in response.iter_content(chunk_size=config['download']['chunk_size_bytes']):
                 if chunk:
                     f.write(chunk)
                     downloaded += len(chunk)
@@ -195,9 +235,21 @@ def main():
     print("Starting FEMA Shapefile Download Process...")
     print("=" * 60)
     
+    # Load configuration
+    try:
+        config = load_config()
+        print(f"Configuration loaded successfully")
+    except Exception as e:
+        print(f"Error loading configuration: {e}")
+        return
+    
     # Configuration
-    db_path = 'meta_results/flood_risk_shapefiles.db'
-    download_base_path = r'E:\FEMA_DOWNLOAD'
+    db_path = config['database']['path']
+    download_base_path = config['download']['base_path']
+    
+    print(f"Database path: {db_path}")
+    print(f"Download path: {download_base_path}")
+    print("=" * 60)
     
     # Connect to database
     try:
@@ -264,7 +316,7 @@ def main():
         expected_size = parse_file_size(product_file_size)
         
         # Download file
-        success = download_file(download_url, filepath, expected_size)
+        success = download_file(download_url, filepath, expected_size, config)
         
         if success:
             # Get actual file size
@@ -273,12 +325,12 @@ def main():
             downloaded_count += 1
             
             # Log success
-            log_download_result(conn, state_code, county_code, community_code, 
+            log_download_result(conn, state_code, county_code, community_code,
                               product_name, product_file_path, True, filepath, actual_size)
         else:
             failed_count += 1
             # Log failure
-            log_download_result(conn, state_code, county_code, community_code, 
+            log_download_result(conn, state_code, county_code, community_code,
                               product_name, product_file_path, False, error_msg="Download failed")
         
         # Progress summary
@@ -290,7 +342,7 @@ def main():
             print(f"    Total size: {total_size_downloaded // (1024*1024)}MB")
         
         # Rate limiting
-        time.sleep(0.2)
+        time.sleep(config['download']['rate_limit_seconds'])
     
     # Final summary
     print("\n" + "=" * 60)

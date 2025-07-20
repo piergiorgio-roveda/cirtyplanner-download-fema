@@ -4,18 +4,20 @@ Script 06a: Extract FEMA Flood Risk ZIP Files Only
 
 This script processes ZIP files downloaded by script 05:
 1. Extracts ZIP files containing FEMA shapefiles
-2. Categorizes shapefiles by type and geometry
-3. Logs extraction results to database
-4. Stops after extraction (no merging)
+2. Logs extraction results to database with detailed shapefile tracking
+3. Stops after extraction (no merging)
 
 This is a simplified version of script 06 that only handles extraction.
+Each ZIP file is extracted to a folder named after the product name.
+No categorization or geometry type detection is performed.
 
 Prerequisites:
     - Script 04: Database with shapefile metadata
     - Script 05: Downloaded ZIP files
+    - config.json file must exist
 
 Dependencies:
-    pip install geopandas fiona shapely pyproj psutil
+    Standard Python libraries only (no GeoPandas/Fiona required)
 
 Usage:
     python notebooks/06a_extract_zip_files.py
@@ -46,27 +48,6 @@ import psutil
 import gc
 import warnings
 warnings.filterwarnings('ignore', category=UserWarning)
-
-# Shapefile type categories and expected geometries
-SHAPEFILE_CATEGORIES = {
-    'RISK': {
-        'R_UDF_Losses_by_Building': 'POLYGON',
-        'R_UDF_Losses_by_Parcel': 'POLYGON', 
-        'R_UDF_Losses_by_Point': 'POINT'
-    },
-    'SPATIAL': {
-        'S_AOMI_Pt': 'POINT',
-        'S_Carto_Ar': 'POLYGON',
-        'S_Carto_Ln': 'LINESTRING',
-        'S_CenBlk_Ar': 'POLYGON',
-        'S_CSLF_Ar': 'POLYGON',
-        'S_FRD_Pol_Ar': 'POLYGON',
-        'S_FRD_Proj_Ar': 'POLYGON',
-        'S_FRM_Callout_Ln': 'LINESTRING',
-        'S_HUC_Ar': 'POLYGON',
-        'S_UDF_Pt': 'POINT'
-    }
-}
 
 class ProcessingError(Exception):
     """Base class for processing errors."""
@@ -101,66 +82,26 @@ def setup_logging(verbose=False):
         level=level,
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler('extraction.log'),
+            logging.FileHandler('extraction_06a.log'),
             logging.StreamHandler()
         ]
     )
     return logging.getLogger(__name__)
 
 def load_config(config_path='config.json'):
-    """Load configuration from JSON file with processing extensions."""
-    # Default configuration with all required sections
-    default_config = {
-        "download": {
-            "base_path": "E:\\FEMA_DOWNLOAD",
-            "rate_limit_seconds": 0.2,
-            "chunk_size_bytes": 8192,
-            "timeout_seconds": 30
-        },
-        "processing": {
-            "extraction_base_path": "E:\\FEMA_EXTRACTED",
-            "merged_output_path": "E:\\FEMA_MERGED",
-            "temp_directory": "E:\\FEMA_TEMP",
-            "target_crs": "EPSG:4326",
-            "chunk_size_features": 10000,
-            "memory_limit_mb": 2048,
-            "parallel_processing": True,
-            "max_workers": 4
-        },
-        "validation": {
-            "geometry_validation": True,
-            "fix_invalid_geometries": True,
-            "skip_empty_geometries": True,
-            "coordinate_precision": 6
-        },
-        "database": {
-            "path": "meta_results/flood_risk_shapefiles.db"
-        },
-        "api": {
-            "base_url": "https://msc.fema.gov",
-            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-    }
-    
+    """Load configuration from JSON file."""
     if not os.path.exists(config_path):
-        # Create default config file
-        with open(config_path, 'w') as f:
-            json.dump(default_config, f, indent=2)
-        
-        print(f"Created default configuration file: {config_path}")
-        return default_config
+        raise FileNotFoundError(f"Configuration file not found: {config_path}. Please create config.json file.")
     
     try:
         with open(config_path, 'r') as f:
-            user_config = json.load(f)
+            config = json.load(f)
         
-        # Merge user config with defaults (user config takes precedence)
-        config = default_config.copy()
-        for section, values in user_config.items():
-            if section in config and isinstance(values, dict):
-                config[section].update(values)
-            else:
-                config[section] = values
+        # Validate required sections
+        required_sections = ['download', 'processing', 'database']
+        for section in required_sections:
+            if section not in config:
+                raise ValueError(f"Missing required configuration section: {section}")
         
         return config
         
@@ -180,86 +121,85 @@ def setup_database(config):
     return conn
 
 def create_processing_tables(conn):
-    """Create tables for tracking extraction and processing."""
+    """Create tables for tracking extraction."""
     cursor = conn.cursor()
     
-    # Track ZIP extraction status
+    # Track ZIP extraction status with detailed shapefile logging
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS extraction_log (
+        CREATE TABLE IF NOT EXISTS extraction_06a_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            state_code TEXT NOT NULL,
-            county_code TEXT NOT NULL,
             product_name TEXT NOT NULL,
             zip_file_path TEXT NOT NULL,
+            extracted_path TEXT,
+            shapefile_name TEXT,
             extraction_success BOOLEAN NOT NULL,
             extraction_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            extracted_files_count INTEGER DEFAULT 0,
-            shapefiles_found TEXT,
-            error_message TEXT,
-            FOREIGN KEY (state_code) REFERENCES states (state_code),
-            FOREIGN KEY (county_code) REFERENCES counties (county_code)
+            error_message TEXT
         )
     ''')
     
     # Create indexes for better performance
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_extraction_log_state ON extraction_log (state_code)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_extraction_06a_product ON extraction_06a_log (product_name)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_extraction_06a_success ON extraction_06a_log (extraction_success)')
     
     conn.commit()
 
-def categorize_shapefile(filename):
-    """Determine shapefile type and expected geometry."""
-    base_name = os.path.splitext(filename)[0]
-    for category, types in SHAPEFILE_CATEGORIES.items():
-        if base_name in types:
-            return base_name, types[base_name], category
-    return base_name, 'UNKNOWN', 'OTHER'
-
-def extract_zip_file(zip_path, extract_to, state_code, county_code, product_name, conn, logger):
-    """Extract ZIP file and log results."""
+def extract_zip_file(product_name, zip_path, extract_to, conn, logger):
+    """Extract ZIP file and log each shapefile found."""
     try:
-        logger.info(f"Extracting: {os.path.basename(zip_path)}")
+        logger.info(f"Extracting: {product_name}")
         
-        # Create extraction directory
-        extract_dir = os.path.join(extract_to, state_code, county_code, product_name)
+        # Create extraction directory named after product
+        extract_dir = os.path.join(extract_to, product_name)
         os.makedirs(extract_dir, exist_ok=True)
         
-        extracted_files = []
-        shapefiles_found = []
+        extracted_shapefiles = []
         
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             # Extract all files
             zip_ref.extractall(extract_dir)
             extracted_files = zip_ref.namelist()
             
-            # Find shapefiles
+            # Find and log each shapefile
             for filename in extracted_files:
                 if filename.lower().endswith('.shp'):
-                    shapefile_type, geometry_type, category = categorize_shapefile(filename)
-                    shapefiles_found.append({
-                        'filename': filename,
-                        'type': shapefile_type,
-                        'geometry': geometry_type,
-                        'category': category
+                    # Get the relative path within the ZIP
+                    extracted_path = filename
+                    # Get just the shapefile name
+                    shapefile_name = os.path.basename(filename)
+                    
+                    extracted_shapefiles.append({
+                        'extracted_path': extracted_path,
+                        'shapefile_name': shapefile_name
                     })
         
-        # Log successful extraction
+        # Log each shapefile to database
         cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO extraction_log 
-            (state_code, county_code, product_name, zip_file_path, extraction_success, 
-             extracted_files_count, shapefiles_found)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (state_code, county_code, product_name, zip_path, True, 
-              len(extracted_files), json.dumps(shapefiles_found)))
+        for shapefile in extracted_shapefiles:
+            cursor.execute('''
+                INSERT INTO extraction_06a_log 
+                (product_name, zip_file_path, extracted_path, shapefile_name, extraction_success)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (product_name, zip_path, shapefile['extracted_path'], 
+                  shapefile['shapefile_name'], True))
+        
+        # If no shapefiles found, still log the successful extraction
+        if not extracted_shapefiles:
+            cursor.execute('''
+                INSERT INTO extraction_06a_log 
+                (product_name, zip_file_path, extracted_path, shapefile_name, extraction_success)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (product_name, zip_path, None, None, True))
+        
         conn.commit()
         
-        logger.info(f"  ✓ Extracted {len(extracted_files)} files, found {len(shapefiles_found)} shapefiles")
+        logger.info(f"  ✓ Extracted {len(extracted_files)} files, found {len(extracted_shapefiles)} shapefiles")
         
         return {
             'success': True,
             'extract_dir': extract_dir,
-            'extracted_files': extracted_files,
-            'shapefiles_found': shapefiles_found
+            'extracted_files': len(extracted_files),
+            'shapefiles_found': len(extracted_shapefiles)
         }
         
     except Exception as e:
@@ -269,10 +209,10 @@ def extract_zip_file(zip_path, extract_to, state_code, county_code, product_name
         # Log failed extraction
         cursor = conn.cursor()
         cursor.execute('''
-            INSERT INTO extraction_log 
-            (state_code, county_code, product_name, zip_file_path, extraction_success, error_message)
+            INSERT INTO extraction_06a_log 
+            (product_name, zip_file_path, extracted_path, shapefile_name, extraction_success, error_message)
             VALUES (?, ?, ?, ?, ?, ?)
-        ''', (state_code, county_code, product_name, zip_path, False, error_msg))
+        ''', (product_name, zip_path, None, None, False, error_msg))
         conn.commit()
         
         return {
@@ -280,38 +220,39 @@ def extract_zip_file(zip_path, extract_to, state_code, county_code, product_name
             'error': error_msg
         }
 
-def get_downloaded_zip_files(config, conn, target_states=None):
-    """Get successfully downloaded ZIP files from database."""
-    download_path = config['download']['base_path']
+def get_unique_zip_files(config, conn, target_states=None):
+    """Get unique ZIP files using the specified query to avoid duplicates."""
     zip_files = []
     
-    # Get downloaded files from database (from script 05)
+    # Get unique downloaded files from database using the provided query
     cursor = conn.cursor()
     if target_states:
+        # Modified query to include state filtering
         state_placeholders = ','.join(['?' for _ in target_states])
         cursor.execute(f'''
-            SELECT DISTINCT dl.state_code, dl.county_code, dl.product_name, dl.file_path, s.state_name
+            SELECT dl.product_name, MIN(dl.file_path) AS file_path
             FROM download_log dl
-            JOIN states s ON dl.state_code = s.state_code
-            WHERE dl.download_success = 1 AND dl.state_code IN ({state_placeholders})
+            WHERE dl.file_path IS NOT NULL 
+            AND dl.download_success = 1
+            AND dl.state_code IN ({state_placeholders})
+            GROUP BY dl.product_name
         ''', target_states)
     else:
+        # Original query as specified
         cursor.execute('''
-            SELECT DISTINCT dl.state_code, dl.county_code, dl.product_name, dl.file_path, s.state_name
+            SELECT dl.product_name, MIN(dl.file_path) AS file_path
             FROM download_log dl
-            JOIN states s ON dl.state_code = s.state_code
-            WHERE dl.download_success = 1
+            WHERE dl.file_path IS NOT NULL
+            AND dl.download_success = 1
+            GROUP BY dl.product_name
         ''')
     
     downloaded_files = cursor.fetchall()
     
     # Build ZIP file list from database records
-    for state_code, county_code, product_name, file_path, state_name in downloaded_files:
+    for product_name, file_path in downloaded_files:
         if file_path and os.path.exists(file_path) and file_path.lower().endswith('.zip'):
             zip_files.append({
-                'state_code': state_code,
-                'state_name': state_name,
-                'county_code': county_code,
                 'product_name': product_name,
                 'zip_path': file_path,
                 'file_size': os.path.getsize(file_path)
@@ -320,26 +261,26 @@ def get_downloaded_zip_files(config, conn, target_states=None):
     return zip_files
 
 def extract_all_zip_files(config, conn, target_states=None, logger=None):
-    """Extract all downloaded ZIP files."""
+    """Extract all unique ZIP files."""
     logger = logger or logging.getLogger(__name__)
     
-    # Get list of ZIP files to process
-    zip_files = get_downloaded_zip_files(config, conn, target_states)
+    # Get list of unique ZIP files to process
+    zip_files = get_unique_zip_files(config, conn, target_states)
     total_files = len(zip_files)
     
     if total_files == 0:
         logger.warning("No ZIP files found to extract")
         return {'extracted': 0, 'failed': 0, 'total': 0}
     
-    logger.info(f"Found {total_files} ZIP files to extract")
+    logger.info(f"Found {total_files} unique ZIP files to extract")
     
     # Check for already extracted files
     cursor = conn.cursor()
-    cursor.execute('SELECT zip_file_path FROM extraction_log WHERE extraction_success = 1')
+    cursor.execute('SELECT DISTINCT product_name FROM extraction_06a_log WHERE extraction_success = 1')
     already_extracted = set(row[0] for row in cursor.fetchall())
     
     # Filter out already extracted files
-    zip_files_to_process = [zf for zf in zip_files if zf['zip_path'] not in already_extracted]
+    zip_files_to_process = [zf for zf in zip_files if zf['product_name'] not in already_extracted]
     logger.info(f"Skipping {total_files - len(zip_files_to_process)} already extracted files")
     
     if len(zip_files_to_process) == 0:
@@ -359,11 +300,9 @@ def extract_all_zip_files(config, conn, target_states=None, logger=None):
         logger.info(f"[{i}/{len(zip_files_to_process)}] Processing: {zip_file['product_name']}")
         
         result = extract_zip_file(
+            zip_file['product_name'],
             zip_file['zip_path'],
             extraction_base,
-            zip_file['state_code'],
-            zip_file['county_code'],
-            zip_file['product_name'],
             conn,
             logger
         )
@@ -387,8 +326,8 @@ def extract_all_zip_files(config, conn, target_states=None, logger=None):
         'skipped': total_files - len(zip_files_to_process)
     }
 
-def generate_extraction_report(extraction_results, logger=None):
-    """Generate extraction summary report."""
+def generate_extraction_report(extraction_results, conn, logger=None):
+    """Generate extraction summary report with database statistics."""
     logger = logger or logging.getLogger(__name__)
     
     logger.info("\n" + "=" * 80)
@@ -397,10 +336,22 @@ def generate_extraction_report(extraction_results, logger=None):
     
     # Extraction summary
     logger.info(f"\n📦 EXTRACTION SUMMARY:")
-    logger.info(f"  Total ZIP files found: {extraction_results.get('total', 0)}")
+    logger.info(f"  Total unique ZIP files found: {extraction_results.get('total', 0)}")
     logger.info(f"  Successfully extracted: {extraction_results.get('extracted', 0)}")
     logger.info(f"  Failed extractions: {extraction_results.get('failed', 0)}")
     logger.info(f"  Already extracted (skipped): {extraction_results.get('skipped', 0)}")
+    
+    # Database statistics
+    cursor = conn.cursor()
+    cursor.execute('SELECT COUNT(*) FROM extraction_06a_log WHERE extraction_success = 1')
+    total_successful_shapefiles = cursor.fetchone()[0]
+    
+    cursor.execute('SELECT COUNT(DISTINCT product_name) FROM extraction_06a_log WHERE extraction_success = 1')
+    total_products_extracted = cursor.fetchone()[0]
+    
+    logger.info(f"\n📊 DATABASE STATISTICS:")
+    logger.info(f"  Total products extracted: {total_products_extracted}")
+    logger.info(f"  Total shapefiles logged: {total_successful_shapefiles}")
     
     # Success rate
     total_processed = extraction_results.get('total', 0)
@@ -420,25 +371,28 @@ def clear_extraction_logs(conn, target_states=None, logger=None):
     cursor = conn.cursor()
     
     if target_states:
+        # For state-specific clearing, we need to identify products from those states
         state_placeholders = ','.join(['?' for _ in target_states])
-        
-        # Clear extraction logs for target states
         cursor.execute(f'''
-            DELETE FROM extraction_log
-            WHERE state_code IN ({state_placeholders})
+            DELETE FROM extraction_06a_log
+            WHERE product_name IN (
+                SELECT DISTINCT dl.product_name
+                FROM download_log dl
+                WHERE dl.state_code IN ({state_placeholders})
+            )
         ''', target_states)
         
         logger.info(f"Cleared extraction logs for states: {target_states}")
     else:
         # Clear all extraction logs
-        cursor.execute('DELETE FROM extraction_log')
+        cursor.execute('DELETE FROM extraction_06a_log')
         
         logger.info("Cleared all extraction logs")
     
     conn.commit()
     
     # Get counts after clearing
-    cursor.execute('SELECT COUNT(*) FROM extraction_log')
+    cursor.execute('SELECT COUNT(*) FROM extraction_06a_log')
     extraction_count = cursor.fetchone()[0]
     
     logger.info(f"Remaining extraction logs: {extraction_count}")
@@ -451,7 +405,7 @@ def cleanup_temporary_files(config, logger=None):
     """
     logger = logger or logging.getLogger(__name__)
     
-    temp_dir = config['processing']['temp_directory']
+    temp_dir = config['processing'].get('temp_directory')
     
     # SAFETY CHECK: Never clean up the download directory with original ZIP files
     download_dir = config['download']['base_path']
@@ -491,7 +445,7 @@ def main():
     
     try:
         # Phase 1: Setup and Initialization
-        logger.info("=== FEMA ZIP File Extraction ===")
+        logger.info("=== FEMA ZIP File Extraction (Script 06a) ===")
         logger.info(f"Start time: {datetime.now()}")
         
         config = load_config(args.config)
@@ -512,14 +466,24 @@ def main():
                 return
             
             if target_states:
-                for state_code in target_states:
-                    state_extraction_dir = os.path.join(extraction_base, state_code)
-                    if os.path.exists(state_extraction_dir):
+                # For state-specific rebuild, we need to identify products from those states
+                cursor = conn.cursor()
+                state_placeholders = ','.join(['?' for _ in target_states])
+                cursor.execute(f'''
+                    SELECT DISTINCT dl.product_name
+                    FROM download_log dl
+                    WHERE dl.state_code IN ({state_placeholders})
+                ''', target_states)
+                products_to_remove = [row[0] for row in cursor.fetchall()]
+                
+                for product_name in products_to_remove:
+                    product_dir = os.path.join(extraction_base, product_name)
+                    if os.path.exists(product_dir):
                         try:
-                            shutil.rmtree(state_extraction_dir)
-                            logger.info(f"Removed existing extraction directory: {state_extraction_dir}")
+                            shutil.rmtree(product_dir)
+                            logger.info(f"Removed existing extraction directory: {product_dir}")
                         except Exception as e:
-                            logger.warning(f"Failed to remove {state_extraction_dir}: {e}")
+                            logger.warning(f"Failed to remove {product_dir}: {e}")
             else:
                 if os.path.exists(extraction_base):
                     try:
@@ -530,8 +494,8 @@ def main():
         
         if args.dry_run:
             logger.info("DRY RUN MODE - No actual processing will be performed")
-            zip_files = get_downloaded_zip_files(config, conn, target_states)
-            logger.info(f"Would process {len(zip_files)} downloaded ZIP files")
+            zip_files = get_unique_zip_files(config, conn, target_states)
+            logger.info(f"Would process {len(zip_files)} unique ZIP files")
             return
         
         # Phase 2: ZIP File Extraction
@@ -539,7 +503,7 @@ def main():
         extraction_results = extract_all_zip_files(config, conn, target_states, logger)
         
         # Final Summary
-        generate_extraction_report(extraction_results, logger)
+        generate_extraction_report(extraction_results, conn, logger)
         
         # Cleanup temporary files
         if not args.no_cleanup:

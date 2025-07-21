@@ -34,14 +34,15 @@ import logging
 import subprocess
 import uuid
 import shutil
+import tempfile
 from pathlib import Path
 from datetime import datetime
 
 # Hardcoded list of filename groups to process
 # These are the filenames without extension that will be merged
 DEFAULT_FILENAME_GROUPS = [
-    # 'county',
-    # 'counties'
+    'county',
+    'counties',
     's_frd_proj_ar',
 ]
 
@@ -170,6 +171,7 @@ def merge_gpkg_files(files, filename, output_path, temp_dir, logger, force_rebui
         cmd = [
             'ogr2ogr',
             '-f', 'GPKG',
+            '-nln', filename,  # Explicitly set the layer name to avoid "SELECT" layer
             temp_output,
             first_file
         ]
@@ -189,6 +191,7 @@ def merge_gpkg_files(files, filename, output_path, temp_dir, logger, force_rebui
                 '-append',
                 '-skipfailures',  # Add skipfailures option for append operations
                 '-sql', f"SELECT *, '{product_name}' AS product_name FROM {layer_name}",
+                '-nln', filename,  # Explicitly set the layer name to avoid "SELECT" layer
                 temp_output,
                 gpkg_path
             ]
@@ -313,6 +316,12 @@ def generate_report(conn, processed_filenames, logger):
     logger.info("\n" + "=" * 80)
     logger.info(f"MERGE COMPLETED - {success_count} successful, {failed_count} failed")
     logger.info("=" * 80)
+    
+    # Add note about layer naming
+    logger.info("\nNOTE ON LAYER NAMING:")
+    logger.info("- Using explicit layer naming (-nln option) to prevent multiple tables in output")
+    logger.info("- All features are stored in a single layer named after the filename group")
+    logger.info("- The 'product_name' field tracks the source of each feature")
 
 def main():
     """Main function."""

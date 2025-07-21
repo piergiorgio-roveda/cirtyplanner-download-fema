@@ -193,7 +193,7 @@ def extract_zip_file(product_name, zip_path, extract_to, conn, logger):
         
         conn.commit()
         
-        logger.info(f"  ✓ Extracted {len(extracted_files)} files, found {len(extracted_shapefiles)} shapefiles")
+        logger.info(f"  [SUCCESS] Extracted {len(extracted_files)} files, found {len(extracted_shapefiles)} shapefiles")
         
         return {
             'success': True,
@@ -204,7 +204,7 @@ def extract_zip_file(product_name, zip_path, extract_to, conn, logger):
         
     except Exception as e:
         error_msg = str(e)
-        logger.error(f"  ✗ Extraction failed: {error_msg}")
+        logger.error(f"  [ERROR] Extraction failed: {error_msg}")
         
         # Log failed extraction
         cursor = conn.cursor()
@@ -335,7 +335,7 @@ def generate_extraction_report(extraction_results, conn, logger=None):
     logger.info("=" * 80)
     
     # Extraction summary
-    logger.info(f"\n📦 EXTRACTION SUMMARY:")
+    logger.info(f"\n[EXTRACTION SUMMARY]:")
     logger.info(f"  Total unique ZIP files found: {extraction_results.get('total', 0)}")
     logger.info(f"  Successfully extracted: {extraction_results.get('extracted', 0)}")
     logger.info(f"  Failed extractions: {extraction_results.get('failed', 0)}")
@@ -349,7 +349,7 @@ def generate_extraction_report(extraction_results, conn, logger=None):
     cursor.execute('SELECT COUNT(DISTINCT product_name) FROM extraction_06a_log WHERE extraction_success = 1')
     total_products_extracted = cursor.fetchone()[0]
     
-    logger.info(f"\n📊 DATABASE STATISTICS:")
+    logger.info(f"\n[DATABASE STATISTICS]:")
     logger.info(f"  Total products extracted: {total_products_extracted}")
     logger.info(f"  Total shapefiles logged: {total_successful_shapefiles}")
     
@@ -357,7 +357,7 @@ def generate_extraction_report(extraction_results, conn, logger=None):
     total_processed = extraction_results.get('total', 0)
     if total_processed > 0:
         extraction_success_rate = (extraction_results.get('extracted', 0) / total_processed) * 100
-        logger.info(f"\n📈 SUCCESS RATE:")
+        logger.info(f"\n[SUCCESS RATE]:")
         logger.info(f"  Extraction success: {extraction_success_rate:.1f}%")
     
     logger.info("\n" + "=" * 80)

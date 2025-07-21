@@ -33,15 +33,16 @@ import argparse
 import logging
 import subprocess
 import uuid
+import shutil
 from pathlib import Path
 from datetime import datetime
 
 # Hardcoded list of filename groups to process
 # These are the filenames without extension that will be merged
 DEFAULT_FILENAME_GROUPS = [
-    'S_FRD_Proj_Ar',
-    'S_HUC_Ar',
-    'S_CSLF_Ar'
+    # 'county',
+    # 'counties'
+    's_frd_proj_ar',
 ]
 
 def setup_logging(verbose=False):
@@ -79,7 +80,7 @@ def load_config(config_path='config.json'):
         # Add temp_merge_path if not present
         if 'processing' in config and 'temp_merge_path' not in config['processing']:
             config['processing']['temp_merge_path'] = os.path.join(
-                'D:\\git\\cityplanner-desktop\\download-fema\\.TMP_MERGE'
+                'D:\\git\\cityplanner-desktop\\download-fema\\.TMP'
             )
             
         return config
@@ -121,6 +122,9 @@ def setup_database(conn):
 def get_files_by_filename(conn, filename, logger):
     """Get all GeoPackage files with the specified filename from clean_conversion_table."""
     cursor = conn.cursor()
+    
+    # Convert filename to lowercase to ensure case-insensitive matching
+    filename = filename.lower()
     
     cursor.execute('''
         SELECT product_name, gpkg_path
@@ -176,11 +180,15 @@ def merge_gpkg_files(files, filename, output_path, temp_dir, logger, force_rebui
         for i, (product_name, gpkg_path) in enumerate(files[1:], 2):
             logger.info(f"Appending file {i}/{len(files)}: {product_name} - {os.path.basename(gpkg_path)}")
             
+            # Build ogr2ogr command with SQL to add product_name field
+            layer_name = os.path.splitext(os.path.basename(gpkg_path))[0]
             cmd = [
                 'ogr2ogr',
                 '-f', 'GPKG',
                 '-update',
                 '-append',
+                '-skipfailures',  # Add skipfailures option for append operations
+                '-sql', f"SELECT *, '{product_name}' AS product_name FROM {layer_name}",
                 temp_output,
                 gpkg_path
             ]
@@ -192,7 +200,11 @@ def merge_gpkg_files(files, filename, output_path, temp_dir, logger, force_rebui
             os.remove(output_path)
         
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        os.rename(temp_output, output_path)
+        
+        # Use copy2 and remove instead of rename for cross-drive operations
+        # This handles the case where temp_dir and output_path are on different drives
+        shutil.copy2(temp_output, output_path)
+        os.remove(temp_output)
         
         logger.info(f"Successfully merged {len(files)} files into {output_path}")
         
@@ -256,16 +268,21 @@ def generate_report(conn, processed_filenames, logger):
     logger.info("GPKG MERGE REPORT")
     logger.info("=" * 80)
     
-    # Get merge statistics
+    # Get merge statistics - get only the most recent entry for each filename_group
     cursor.execute('''
-        SELECT 
-            filename_group, 
-            source_files_count, 
-            merged_gpkg_path,
-            merge_success
-        FROM merge_06d_log
-        WHERE filename_group IN ({})
-        ORDER BY merge_timestamp DESC
+        SELECT
+            m1.filename_group,
+            m1.source_files_count,
+            m1.merged_gpkg_path,
+            m1.merge_success
+        FROM merge_06d_log m1
+        INNER JOIN (
+            SELECT filename_group, MAX(merge_timestamp) as latest_timestamp
+            FROM merge_06d_log
+            WHERE filename_group IN ({})
+            GROUP BY filename_group
+        ) m2 ON m1.filename_group = m2.filename_group AND m1.merge_timestamp = m2.latest_timestamp
+        ORDER BY m1.filename_group
     '''.format(','.join(['?'] * len(processed_filenames))), processed_filenames)
     
     results = cursor.fetchall()
@@ -275,7 +292,16 @@ def generate_report(conn, processed_filenames, logger):
     success_count = 0
     failed_count = 0
     
+    # Track processed filenames to avoid duplicates
+    processed = set()
+    
     for filename, source_count, path, success in results:
+        # Skip if we've already processed this filename
+        if filename in processed:
+            continue
+            
+        processed.add(filename)
+        
         status = "SUCCESS" if success else "FAILED"
         if success:
             success_count += 1

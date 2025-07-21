@@ -31,12 +31,19 @@ from datetime import datetime
 
 def setup_logging(verbose=False):
     """Setup logging configuration."""
+    # Create .log directory if it doesn't exist
+    log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.log')
+    os.makedirs(log_dir, exist_ok=True)
+    
+    # Set up log file path in the .log directory
+    log_file = os.path.join(log_dir, 'clean_conversion_06c.log')
+    
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
         level=level,
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler('clean_conversion_06c.log'),
+            logging.FileHandler(log_file),
             logging.StreamHandler()
         ]
     )

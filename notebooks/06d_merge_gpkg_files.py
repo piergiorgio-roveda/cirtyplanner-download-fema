@@ -138,8 +138,57 @@ def get_files_by_filename(conn, filename, logger):
     
     return files
 
+def analyze_schema(gpkg_path, logger):
+    """Analyze the schema of a GeoPackage file to get column names and geometry column."""
+    try:
+        # Create a temporary directory for ogrinfo output
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_file = os.path.join(temp_dir, "schema_info.txt")
+            
+            # Get the layer name (same as filename without extension)
+            layer_name = os.path.splitext(os.path.basename(gpkg_path))[0]
+            
+            # Run ogrinfo to get schema information
+            cmd = [
+                'ogrinfo',
+                '-so',  # Summary only
+                gpkg_path,
+                layer_name
+            ]
+            
+            with open(output_file, 'w') as f:
+                result = subprocess.run(cmd, stdout=f, stderr=subprocess.PIPE, text=True)
+            
+            if result.returncode != 0:
+                logger.error(f"ogrinfo error: {result.stderr}")
+                return [], None
+            
+            # Parse the output to extract column names and geometry column
+            columns = []
+            geometry_column = None
+            with open(output_file, 'r') as f:
+                for line in f:
+                    if "Geometry Column" in line:
+                        # Extract geometry column name
+                        geometry_column = line.split("=")[1].strip()
+                    elif ":" in line and not line.strip().startswith("INFO"):
+                        # This is likely a column definition
+                        column_name = line.split(':')[0].strip()
+                        if column_name and column_name not in ['Geometry', 'FID']:
+                            columns.append(column_name)
+            
+            if not geometry_column:
+                logger.warning(f"No geometry column found in {gpkg_path}")
+                # Default to common geometry column names
+                geometry_column = "GEOMETRY"
+            
+            return columns, geometry_column
+    except Exception as e:
+        logger.error(f"Error analyzing schema: {str(e)}")
+        return []
+
 def merge_gpkg_files(files, filename, output_path, temp_dir, logger, force_rebuild=False):
-    """Merge GeoPackage files using ogr2ogr."""
+    """Merge GeoPackage files using ogr2ogr with improved schema handling."""
     if not files:
         logger.warning(f"No files to merge for filename '{filename}'")
         return False, "No files to merge"
@@ -157,6 +206,35 @@ def merge_gpkg_files(files, filename, output_path, temp_dir, logger, force_rebui
         return False, "Output file already exists"
     
     try:
+        # Analyze schemas of all files to identify all possible columns and geometry column
+        logger.info(f"Analyzing schemas for {len(files)} files with filename {filename}...")
+        all_columns = set()
+        file_columns = {}
+        geometry_columns = {}
+        
+        for product_name, gpkg_path in files:
+            columns, geom_col = analyze_schema(gpkg_path, logger)
+            file_columns[(product_name, gpkg_path)] = columns
+            geometry_columns[(product_name, gpkg_path)] = geom_col
+            all_columns.update(columns)
+        
+        # Remove 'product_name' if it exists as we'll add it ourselves
+        if 'product_name' in all_columns:
+            all_columns.remove('product_name')
+        
+        logger.info(f"Found {len(all_columns)} unique columns across all files")
+        
+        # Determine the most common geometry column name
+        geom_col_counts = {}
+        for geom_col in geometry_columns.values():
+            if geom_col not in geom_col_counts:
+                geom_col_counts[geom_col] = 0
+            geom_col_counts[geom_col] += 1
+        
+        # Use the most common geometry column name
+        common_geom_col = max(geom_col_counts.items(), key=lambda x: x[1])[0]
+        logger.info(f"Using geometry column name: {common_geom_col}")
+        
         # Create a unique temporary file
         unique_id = str(uuid.uuid4())[:8]
         temp_output = os.path.join(temp_dir, f"{filename}_{unique_id}.gpkg")
@@ -167,36 +245,87 @@ def merge_gpkg_files(files, filename, output_path, temp_dir, logger, force_rebui
         
         logger.info(f"Starting with first file: {first_product} - {os.path.basename(first_file)}")
         
-        # Copy first file to temp output
+        # Build SQL query with all columns (using NULL for missing columns)
+        first_file_columns = file_columns[(first_product, first_file)]
+        first_geom_col = geometry_columns[(first_product, first_file)]
+        sql_columns = []
+        
+        # Add geometry column first
+        sql_columns.append(f"{first_geom_col}")
+        
+        for col in all_columns:
+            if col in first_file_columns:
+                sql_columns.append(f'"{col}"')
+            else:
+                sql_columns.append(f'NULL AS "{col}"')
+        
+        # Add product_name column
+        sql_columns.append(f"'{first_product}' AS product_name")
+        
+        # Build the SQL query
+        layer_name = os.path.splitext(os.path.basename(first_file))[0]
+        sql_query = f"SELECT {', '.join(sql_columns)} FROM {layer_name}"
+        
+        # Copy first file to temp output with SQL to handle schema
         cmd = [
             'ogr2ogr',
             '-f', 'GPKG',
+            '-sql', sql_query,
             '-nln', filename,  # Explicitly set the layer name to avoid "SELECT" layer
+            '-geomfield', first_geom_col,  # Explicitly specify the geometry column
             temp_output,
             first_file
         ]
         
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            logger.error(f"ogr2ogr error: {result.stderr}")
+            return False, result.stderr
         
         # Append each subsequent file
         for i, (product_name, gpkg_path) in enumerate(files[1:], 2):
             logger.info(f"Appending file {i}/{len(files)}: {product_name} - {os.path.basename(gpkg_path)}")
             
-            # Build ogr2ogr command with SQL to add product_name field
+            # Build SQL query with all columns (using NULL for missing columns)
+            file_cols = file_columns[(product_name, gpkg_path)]
+            file_geom_col = geometry_columns[(product_name, gpkg_path)]
+            sql_columns = []
+            
+            # Add geometry column first
+            sql_columns.append(f"{file_geom_col}")
+            
+            for col in all_columns:
+                if col in file_cols:
+                    sql_columns.append(f'"{col}"')
+                else:
+                    sql_columns.append(f'NULL AS "{col}"')
+            
+            # Add product_name column
+            sql_columns.append(f"'{product_name}' AS product_name")
+            
+            # Build the SQL query
             layer_name = os.path.splitext(os.path.basename(gpkg_path))[0]
+            sql_query = f"SELECT {', '.join(sql_columns)} FROM {layer_name}"
+            
+            # Build ogr2ogr command with SQL to handle schema differences
             cmd = [
                 'ogr2ogr',
                 '-f', 'GPKG',
                 '-update',
                 '-append',
                 '-skipfailures',  # Add skipfailures option for append operations
-                '-sql', f"SELECT *, '{product_name}' AS product_name FROM {layer_name}",
+                '-sql', sql_query,
                 '-nln', filename,  # Explicitly set the layer name to avoid "SELECT" layer
+                '-geomfield', file_geom_col,  # Explicitly specify the geometry column
                 temp_output,
                 gpkg_path
             ]
             
-            subprocess.run(cmd, check=True, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                logger.error(f"ogr2ogr error: {result.stderr}")
+                # Continue with next file despite error
+                continue
         
         # Move the temp file to the final destination
         if os.path.exists(output_path):
@@ -317,11 +446,15 @@ def generate_report(conn, processed_filenames, logger):
     logger.info(f"MERGE COMPLETED - {success_count} successful, {failed_count} failed")
     logger.info("=" * 80)
     
-    # Add note about layer naming
-    logger.info("\nNOTE ON LAYER NAMING:")
+    # Add note about layer naming and schema handling
+    logger.info("\nNOTE ON LAYER NAMING AND SCHEMA HANDLING:")
     logger.info("- Using explicit layer naming (-nln option) to prevent multiple tables in output")
     logger.info("- All features are stored in a single layer named after the filename group")
     logger.info("- The 'product_name' field tracks the source of each feature")
+    logger.info("- Schema differences are handled by analyzing all files before merging")
+    logger.info("- All columns from all files are included in the merged output")
+    logger.info("- Missing columns are filled with NULL values")
+    logger.info("- New fields in subsequent files are properly included in the merged output")
 
 def main():
     """Main function."""

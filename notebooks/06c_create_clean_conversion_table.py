@@ -112,6 +112,9 @@ def extract_filename(gpkg_path):
     # Remove the extension
     filename = os.path.splitext(basename)[0]
     
+    # Convert to lowercase to handle case sensitivity
+    filename = filename.lower()
+    
     return filename
 
 def populate_clean_table(conn, logger):

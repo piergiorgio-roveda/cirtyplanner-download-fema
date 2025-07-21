@@ -1,0 +1,183 @@
+@startuml FEMA Flood Risk Database Schema
+
+' Define entities with their attributes
+entity "states" as states {
+  *state_code : TEXT <<PK>>
+  --
+  *state_name : TEXT
+  created_at : TIMESTAMP
+}
+
+entity "counties" as counties {
+  *county_code : TEXT <<PK>>
+  --
+  *county_name : TEXT
+  *state_code : TEXT <<FK>>
+  created_at : TIMESTAMP
+}
+
+entity "communities" as communities {
+  *community_code : TEXT <<PK>>
+  --
+  *community_name : TEXT
+  *county_code : TEXT <<FK>>
+  *state_code : TEXT <<FK>>
+  created_at : TIMESTAMP
+}
+
+entity "shapefiles" as shapefiles {
+  *id : INTEGER <<PK>>
+  --
+  *community_code : TEXT <<FK>>
+  *county_code : TEXT <<FK>>
+  *state_code : TEXT <<FK>>
+  product_id : INTEGER
+  product_type_id : TEXT
+  product_subtype_id : TEXT
+  product_name : TEXT
+  product_description : TEXT
+  product_effective_date : INTEGER
+  product_issue_date : INTEGER
+  product_effective_date_string : TEXT
+  product_posting_date : INTEGER
+  product_posting_date_string : TEXT
+  product_issue_date_string : TEXT
+  product_effective_flag : TEXT
+  product_file_path : TEXT
+  product_file_size : TEXT
+  fetch_timestamp : TIMESTAMP
+}
+
+entity "request_log" as request_log {
+  *id : INTEGER <<PK>>
+  --
+  *community_code : TEXT <<FK>>
+  *county_code : TEXT
+  *state_code : TEXT
+  *success : BOOLEAN
+  error_message : TEXT
+  shapefiles_found : INTEGER
+  request_timestamp : TIMESTAMP
+}
+
+entity "download_log" as download_log {
+  *id : INTEGER <<PK>>
+  --
+  *state_code : TEXT
+  *county_code : TEXT
+  *community_code : TEXT
+  *product_name : TEXT
+  *product_file_path : TEXT
+  *download_success : BOOLEAN
+  download_timestamp : TIMESTAMP
+  file_path : TEXT
+  file_size_bytes : INTEGER
+  error_message : TEXT
+}
+
+entity "extraction_06a_log" as extraction_log {
+  *id : INTEGER <<PK>>
+  --
+  *product_name : TEXT
+  *zip_file_path : TEXT
+  extracted_path : TEXT
+  shapefile_name : TEXT
+  *extraction_success : BOOLEAN
+  extraction_timestamp : TIMESTAMP
+  error_message : TEXT
+}
+
+entity "conversion_06b_log" as conversion_log {
+  *id : INTEGER <<PK>>
+  --
+  *product_name : TEXT
+  *shapefile_path : TEXT
+  *gpkg_path : TEXT
+  *conversion_success : BOOLEAN
+  conversion_timestamp : TIMESTAMP
+  error_message : TEXT
+}
+
+entity "clean_conversion_table" as clean_conversion {
+  *id : INTEGER <<PK>>
+  --
+  *product_name : TEXT
+  *gpkg_path : TEXT
+  *filename : TEXT
+}
+
+entity "gpkg_filename_groups" as filename_groups {
+  *id : INTEGER <<PK>>
+  --
+  *filename : TEXT
+  *count : INTEGER
+}
+
+entity "merge_06d_log" as merge_log {
+  *id : INTEGER <<PK>>
+  --
+  *filename_group : TEXT
+  *source_files_count : INTEGER
+  *merged_gpkg_path : TEXT
+  *merge_success : BOOLEAN
+  merge_timestamp : TIMESTAMP
+  error_message : TEXT
+}
+
+entity "shapefile_processing_log" as processing_log {
+  *id : INTEGER <<PK>>
+  --
+  *state_code : TEXT <<FK>>
+  *shapefile_type : TEXT
+  geometry_type : TEXT
+  source_files_count : INTEGER
+  total_features_merged : INTEGER
+  output_gpkg_path : TEXT
+  *processing_success : BOOLEAN
+  processing_timestamp : TIMESTAMP
+  file_size_bytes : INTEGER
+  coordinate_system : TEXT
+  error_message : TEXT
+}
+
+entity "shapefile_contributions" as contributions {
+  *id : INTEGER <<PK>>
+  --
+  *state_code : TEXT <<FK>>
+  *county_code : TEXT <<FK>>
+  *community_code : TEXT <<FK>>
+  *product_name : TEXT
+  *shapefile_type : TEXT
+  *source_shapefile_path : TEXT
+  features_count : INTEGER
+  merged_into_gpkg : TEXT
+  processing_timestamp : TIMESTAMP
+}
+
+' Define relationships
+states ||--o{ counties : "has"
+states ||--o{ communities : "has"
+counties ||--o{ communities : "has"
+
+states ||--o{ shapefiles : "has"
+counties ||--o{ shapefiles : "has"
+communities ||--o{ shapefiles : "has"
+
+communities ||--o{ request_log : "requests"
+
+states ||--o{ processing_log : "processes"
+states ||--o{ contributions : "contributes"
+counties ||--o{ contributions : "contributes"
+communities ||--o{ contributions : "contributes"
+
+' Define workflow relationships with dashed lines
+shapefiles ..> download_log : "downloads"
+download_log ..> extraction_log : "extracts"
+extraction_log ..> conversion_log : "converts"
+conversion_log ..> clean_conversion : "cleans"
+clean_conversion ..> filename_groups : "groups"
+filename_groups ..> merge_log : "merges"
+merge_log ..> processing_log : "processes"
+processing_log ..> contributions : "tracks"
+
+@enduml

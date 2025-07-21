@@ -10,9 +10,11 @@ This script processes shapefiles extracted by script 06a:
 Prerequisites:
     - Script 06a: Extracted shapefiles with extraction_06a_log entries
     - config.json file must exist
+    - OSGeo4W console or environment with ogr2ogr available in PATH
+      (This script must be run from an OSGeo4W console to have access to ogr2ogr)
 
 Dependencies:
-    No special Python packages required (uses ogr2ogr command-line tool)
+    No special Python packages required (uses ogr2ogr command-line tool from OSGeo4W)
 
 Usage:
     python notebooks/06b_convert_shapefiles_to_gpkg.py
@@ -52,6 +54,10 @@ class ProcessingError(Exception):
 
 class ConversionError(ProcessingError):
     """Shapefile to GPKG conversion failed."""
+    pass
+
+class StrictModeError(ProcessingError):
+    """Error raised when strict mode detects warnings or errors."""
     pass
 
 class MemoryMonitor:
@@ -112,6 +118,10 @@ def load_config(config_path='config.json'):
             config['processing']['temp_conversion_path'] = os.path.join(
                 'D:\\git\\cityplanner-desktop\\download-fema\\.TMP'
             )
+            
+        # Add strict_mode if not present
+        if 'processing' in config and 'strict_mode' not in config['processing']:
+            config['processing']['strict_mode'] = False
             
         return config
         
@@ -205,7 +215,7 @@ def get_shapefiles_to_convert(config, conn, target_products=None):
     
     return shapefiles_to_convert
 
-def convert_with_ogr2ogr(source_path, dest_path, temp_dir, product_name, encoding='UTF-8'):
+def convert_with_ogr2ogr(source_path, dest_path, temp_dir, product_name, strict_mode=False, encoding='UTF-8'):
     """Convert shapefile to GPKG using ogr2ogr (fixes polygon winding order issues)."""
     try:
         # Create temporary directory if it doesn't exist
@@ -227,10 +237,14 @@ def convert_with_ogr2ogr(source_path, dest_path, temp_dir, product_name, encodin
             '--config', 'CPL_TMPDIR', temp_dir,  # Set temp directory
             '--config', 'SHAPE_ENCODING', encoding,  # Set encoding
             '-lco', 'ENCODING=UTF-8',  # Force UTF-8 output encoding
-            '-skipfailures',  # Skip failures
-            temp_dest_path,  # Temporary destination
-            source_path  # Source
         ]
+        
+        # Only skip failures in non-strict mode
+        if not strict_mode:
+            cmd.append('-skipfailures')
+            
+        # Add destination and source
+        cmd.extend([temp_dest_path, source_path])
         
         # Execute command
         result = subprocess.run(
@@ -239,6 +253,10 @@ def convert_with_ogr2ogr(source_path, dest_path, temp_dir, product_name, encodin
             text=True,
             check=True
         )
+        
+        # In strict mode, check for warnings in stderr
+        if strict_mode and result.stderr:
+            raise StrictModeError(f"Warnings detected in strict mode: {result.stderr}")
         
         # Create destination directory
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
@@ -264,6 +282,7 @@ def convert_shapefile_to_gpkg(shapefile_info, config, logger):
         shapefile_name = shapefile_info['shapefile_name']
         encoding = config.get('processing', {}).get('shapefile_encoding', 'UTF-8')
         temp_dir = config.get('processing', {}).get('temp_conversion_path', 'D:\\git\\cityplanner-desktop\\download-fema\\.TMP')
+        strict_mode = config.get('processing', {}).get('strict_mode', False)
         
         logger.info(f"Converting: {shapefile_name} from {product_name}")
         
@@ -274,7 +293,8 @@ def convert_shapefile_to_gpkg(shapefile_info, config, logger):
         # Convert using ogr2ogr with temporary directory
         logger.debug(f"  Using ogr2ogr for conversion with encoding {encoding}")
         logger.debug(f"  Using temporary directory: {temp_dir}")
-        convert_with_ogr2ogr(source_path, dest_path, temp_dir, product_name, encoding)
+        logger.debug(f"  Strict mode: {'enabled' if strict_mode else 'disabled'}")
+        convert_with_ogr2ogr(source_path, dest_path, temp_dir, product_name, strict_mode, encoding)
         
         # Create thread-local database connection
         thread_conn = get_db_connection(config)
@@ -348,8 +368,15 @@ def convert_all_shapefiles(config, conn, target_products=None, max_workers=4, lo
     converted_count = 0
     failed_count = 0
     memory_monitor = MemoryMonitor(config['processing']['memory_limit_mb'])
+    strict_mode = config.get('processing', {}).get('strict_mode', False)
     
-    # Use parallel processing if configured
+    # In strict mode, always use sequential processing
+    if strict_mode:
+        logger.info("Strict mode enabled - using sequential processing")
+        max_workers = 1
+        config['processing']['parallel_processing'] = False
+    
+    # Use parallel processing if configured and not in strict mode
     if config['processing'].get('parallel_processing', False) and max_workers > 1:
         logger.info(f"Using parallel processing with {max_workers} workers")
         
@@ -367,9 +394,20 @@ def convert_all_shapefiles(config, conn, target_products=None, max_workers=4, lo
                         converted_count += 1
                     else:
                         failed_count += 1
+                        # In strict mode, stop on first failure
+                        if strict_mode:
+                            logger.error("Strict mode enabled - stopping on first failure")
+                            raise StrictModeError("Conversion failed in strict mode")
+                except StrictModeError as e:
+                    logger.error(f"Strict mode error: {e}")
+                    raise  # Re-raise to stop processing
                 except Exception as e:
                     logger.error(f"Unexpected error: {e}")
                     failed_count += 1
+                    # In strict mode, stop on first error
+                    if strict_mode:
+                        logger.error("Strict mode enabled - stopping on first error")
+                        raise StrictModeError(f"Unexpected error in strict mode: {e}")
                 
                 # Memory management
                 if i % 10 == 0:
@@ -378,12 +416,27 @@ def convert_all_shapefiles(config, conn, target_products=None, max_workers=4, lo
     else:
         # Sequential processing
         for i, shapefile in enumerate(shapefiles, 1):
-            result = convert_shapefile_to_gpkg(shapefile, config, logger)
-            
-            if result['success']:
-                converted_count += 1
-            else:
+            try:
+                result = convert_shapefile_to_gpkg(shapefile, config, logger)
+                
+                if result['success']:
+                    converted_count += 1
+                else:
+                    failed_count += 1
+                    # In strict mode, stop on first failure
+                    if strict_mode:
+                        logger.error("Strict mode enabled - stopping on first failure")
+                        raise StrictModeError("Conversion failed in strict mode")
+            except StrictModeError as e:
+                logger.error(f"Strict mode error: {e}")
+                raise  # Re-raise to stop processing
+            except Exception as e:
+                logger.error(f"Unexpected error: {e}")
                 failed_count += 1
+                # In strict mode, stop on first error
+                if strict_mode:
+                    logger.error("Strict mode enabled - stopping on first error")
+                    raise StrictModeError(f"Unexpected error in strict mode: {e}")
             
             # Memory management
             if i % 10 == 0:
@@ -477,6 +530,7 @@ def main():
     parser.add_argument('--max-workers', type=int, default=4, help='Maximum number of worker threads for parallel processing')
     parser.add_argument('--encoding', default='UTF-8', help='Encoding to use for shapefile attribute data (default: UTF-8, try latin-1 for encoding issues)')
     parser.add_argument('--temp-dir', help='Temporary directory for faster conversion (default: D:\\git\\cityplanner-desktop\\download-fema\\.TMP)')
+    parser.add_argument('--strict', action='store_true', help='Enable strict mode - stop on first error or warning')
     
     args = parser.parse_args()
     
@@ -515,6 +569,13 @@ def main():
         else:
             temp_dir = config.get('processing', {}).get('temp_conversion_path')
             logger.info(f"Using temporary directory: {temp_dir} for faster conversion")
+            
+        # Add strict mode to config if specified
+        if args.strict:
+            if 'processing' not in config:
+                config['processing'] = {}
+            config['processing']['strict_mode'] = True
+            logger.info("STRICT MODE ENABLED - Will stop on first error or warning")
         conn = setup_database(config)
         
         # Handle force rebuild option

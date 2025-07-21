@@ -129,9 +129,14 @@ pip install requests sqlite3 geopandas fiona shapely pyproj psutil
    # Step 1: Extract ZIP files only
    python notebooks/06a_extract_zip_files.py
    
-   # Step 2: Convert shapefiles to GPKG
+   # Step 2: Convert shapefiles to GPKG (must be run from OSGeo4W console)
+   # Open OSGeo4W console first, then navigate to project directory
+   cd /d d:\git\cityplanner-desktop\download-fema
    python notebooks/06b_convert_shapefiles_to_gpkg.py
    ```
+   
+   **Important**: Script 06b requires ogr2ogr which is available through OSGeo4W.
+   You must run this script from an OSGeo4W console or environment where ogr2ogr is in the PATH.
    
    **Option 2 (Legacy): Combined extraction and merging**
    ```bash

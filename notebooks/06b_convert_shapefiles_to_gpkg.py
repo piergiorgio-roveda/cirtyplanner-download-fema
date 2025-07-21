@@ -12,7 +12,7 @@ Prerequisites:
     - config.json file must exist
 
 Dependencies:
-    pip install geopandas fiona shapely pyproj
+    No special Python packages required (uses ogr2ogr command-line tool)
 
 Usage:
     python notebooks/06b_convert_shapefiles_to_gpkg.py
@@ -36,12 +36,13 @@ import json
 import shutil
 import argparse
 import logging
+import subprocess
+import uuid
 from pathlib import Path
 from datetime import datetime
 import psutil
 import gc
 import warnings
-import geopandas as gpd
 from concurrent.futures import ThreadPoolExecutor
 warnings.filterwarnings('ignore', category=UserWarning)
 
@@ -102,8 +103,14 @@ def load_config(config_path='config.json'):
         # Add shapefile_to_gpkg_path if not present
         if 'processing' in config and 'shapefile_to_gpkg_path' not in config['processing']:
             config['processing']['shapefile_to_gpkg_path'] = os.path.join(
-                os.path.dirname(config['processing']['extraction_base_path']), 
+                os.path.dirname(config['processing']['extraction_base_path']),
                 'FEMA_SHAPEFILE_TO_GPKG'
+            )
+            
+        # Add temp_conversion_path if not present
+        if 'processing' in config and 'temp_conversion_path' not in config['processing']:
+            config['processing']['temp_conversion_path'] = os.path.join(
+                'D:\\git\\cityplanner-desktop\\download-fema\\.TMP'
             )
             
         return config
@@ -198,8 +205,55 @@ def get_shapefiles_to_convert(config, conn, target_products=None):
     
     return shapefiles_to_convert
 
+def convert_with_ogr2ogr(source_path, dest_path, temp_dir, product_name, encoding='UTF-8'):
+    """Convert shapefile to GPKG using ogr2ogr (fixes polygon winding order issues)."""
+    try:
+        # Create temporary directory if it doesn't exist
+        os.makedirs(temp_dir, exist_ok=True)
+        
+        # Create a unique temporary destination path using product name and UUID
+        unique_id = str(uuid.uuid4())[:8]  # Use first 8 characters of UUID
+        temp_filename = f"{product_name}_{unique_id}_{os.path.basename(dest_path)}"
+        temp_dest_path = os.path.join(temp_dir, temp_filename)
+        
+        # Build ogr2ogr command
+        cmd = [
+            'ogr2ogr',
+            '-f', 'GPKG',
+            '-nlt', 'PROMOTE_TO_MULTI',  # Convert to multi-geometries
+            '-nln', os.path.splitext(os.path.basename(dest_path))[0],  # Layer name
+            '-a_srs', 'EPSG:4326',  # Assign output coordinate system
+            '--config', 'OGR_ENABLE_PARTIAL_REPROJECTION', 'TRUE',  # Enable partial reprojection
+            '--config', 'CPL_TMPDIR', temp_dir,  # Set temp directory
+            '--config', 'SHAPE_ENCODING', encoding,  # Set encoding
+            '-lco', 'ENCODING=UTF-8',  # Force UTF-8 output encoding
+            '-skipfailures',  # Skip failures
+            temp_dest_path,  # Temporary destination
+            source_path  # Source
+        ]
+        
+        # Execute command
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        
+        # Create destination directory
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        
+        # Move the file from temporary location to final destination
+        shutil.move(temp_dest_path, dest_path)
+        
+        return True
+    except subprocess.CalledProcessError as e:
+        raise ConversionError(f"ogr2ogr failed: {e.stderr}")
+    except Exception as e:
+        raise ConversionError(f"Error during conversion or file move: {str(e)}")
+
 def convert_shapefile_to_gpkg(shapefile_info, config, logger):
-    """Convert a single shapefile to GPKG format."""
+    """Convert a single shapefile to GPKG format using ogr2ogr."""
     # Create a new database connection for this thread
     thread_conn = None
     
@@ -208,6 +262,8 @@ def convert_shapefile_to_gpkg(shapefile_info, config, logger):
         source_path = shapefile_info['source_path']
         dest_path = shapefile_info['dest_path']
         shapefile_name = shapefile_info['shapefile_name']
+        encoding = config.get('processing', {}).get('shapefile_encoding', 'UTF-8')
+        temp_dir = config.get('processing', {}).get('temp_conversion_path', 'D:\\git\\cityplanner-desktop\\download-fema\\.TMP')
         
         logger.info(f"Converting: {shapefile_name} from {product_name}")
         
@@ -215,19 +271,10 @@ def convert_shapefile_to_gpkg(shapefile_info, config, logger):
         if not os.path.exists(source_path):
             raise ConversionError(f"Source shapefile not found: {source_path}")
         
-        # Create destination directory
-        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-        
-        # Read shapefile with geopandas
-        gdf = gpd.read_file(source_path)
-        
-        # Add metadata
-        gdf['fema_product_name'] = product_name
-        gdf['fema_source_file'] = source_path
-        gdf['fema_processing_date'] = datetime.now()
-        
-        # Write to GeoPackage
-        gdf.to_file(dest_path, driver='GPKG')
+        # Convert using ogr2ogr with temporary directory
+        logger.debug(f"  Using ogr2ogr for conversion with encoding {encoding}")
+        logger.debug(f"  Using temporary directory: {temp_dir}")
+        convert_with_ogr2ogr(source_path, dest_path, temp_dir, product_name, encoding)
         
         # Create thread-local database connection
         thread_conn = get_db_connection(config)
@@ -428,6 +475,8 @@ def main():
     parser.add_argument('--dry-run', action='store_true', help='Show what would be processed without doing it')
     parser.add_argument('--verbose', action='store_true', help='Enable verbose logging')
     parser.add_argument('--max-workers', type=int, default=4, help='Maximum number of worker threads for parallel processing')
+    parser.add_argument('--encoding', default='UTF-8', help='Encoding to use for shapefile attribute data (default: UTF-8, try latin-1 for encoding issues)')
+    parser.add_argument('--temp-dir', help='Temporary directory for faster conversion (default: D:\\git\\cityplanner-desktop\\download-fema\\.TMP)')
     
     args = parser.parse_args()
     
@@ -446,6 +495,26 @@ def main():
         logger.info(f"Start time: {datetime.now()}")
         
         config = load_config(args.config)
+        
+        # Log conversion method
+        logger.info("Using ogr2ogr for shapefile conversion (fixes polygon winding order issues)")
+            
+        # Add encoding to config if specified
+        if args.encoding:
+            if 'processing' not in config:
+                config['processing'] = {}
+            config['processing']['shapefile_encoding'] = args.encoding
+            logger.info(f"Using encoding: {args.encoding} for shapefile conversion")
+            
+        # Add temp directory to config if specified
+        if args.temp_dir:
+            if 'processing' not in config:
+                config['processing'] = {}
+            config['processing']['temp_conversion_path'] = args.temp_dir
+            logger.info(f"Using temporary directory: {args.temp_dir} for faster conversion")
+        else:
+            temp_dir = config.get('processing', {}).get('temp_conversion_path')
+            logger.info(f"Using temporary directory: {temp_dir} for faster conversion")
         conn = setup_database(config)
         
         # Handle force rebuild option

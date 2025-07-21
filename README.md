@@ -39,7 +39,9 @@ The project is actively collecting flood risk shapefile metadata from FEMA's por
 │   ├── 03_get_all_communities.py # Extract communities for each county
 │   ├── 04_get_flood_risk_shapefiles.py # Collect shapefile data
 │   ├── 05_download_shapefiles.py # Download all shapefile ZIP files
-│   └── 06_extract_and_merge_shapefiles.py # Extract ZIPs and merge to GPKG
+│   ├── 06_extract_and_merge_shapefiles.py # Legacy: Extract ZIPs and merge to GPKG
+│   ├── 06a_extract_zip_files.py # Extract ZIP files only
+│   └── 06b_convert_shapefiles_to_gpkg.py # Convert shapefiles to GPKG
 ├── meta/                         # Reference HTML/JSON files
 │   ├── state.html               # FEMA state dropdown HTML
 │   ├── advanceSearch-getCounty.json
@@ -120,15 +122,28 @@ pip install requests sqlite3 geopandas fiona shapely pyproj psutil
    ```
    Downloads only the first 10 files not yet downloaded
 
-6. **Extract and Merge Shapefiles**:
+6. **Extract and Process Shapefiles**:
+   
+   **Option 1 (Recommended): Two-step process**
+   ```bash
+   # Step 1: Extract ZIP files only
+   python notebooks/06a_extract_zip_files.py
+   
+   # Step 2: Convert shapefiles to GPKG
+   python notebooks/06b_convert_shapefiles_to_gpkg.py
+   ```
+   
+   **Option 2 (Legacy): Combined extraction and merging**
    ```bash
    python notebooks/06_extract_and_merge_shapefiles.py
    ```
-   Creates merged GPKG files: `E:\FEMA_MERGED\{state_code}\{shapefile_type}.gpkg`
+   
+   Creates merged GPKG files: `E:\FEMA_SHAPEFILE_TO_GPKG\{product_name}\{shapefile_name}.gpkg`
    
    **Force rebuild (if new data found by scripts 04/05):**
    ```bash
-   python notebooks/06_extract_and_merge_shapefiles.py --force-rebuild
+   python notebooks/06a_extract_zip_files.py --force-rebuild
+   python notebooks/06b_convert_shapefiles_to_gpkg.py --force-rebuild
    ```
    Clears all processing logs and rebuilds from scratch
 
@@ -161,10 +176,82 @@ python notebooks/05_download_shapefiles.py --config my_config.json
 python notebooks/05_download_shapefiles.py
 ```
 
-### Script 06: Extract and Merge Shapefiles
+### Script 06a: Extract ZIP Files
 
 ```bash
 # Basic usage
+python notebooks/06a_extract_zip_files.py
+
+# Available options:
+python notebooks/06a_extract_zip_files.py [OPTIONS]
+
+Options:
+  --config PATH          Use custom configuration file (default: config.json)
+  --states CODES         Process specific states only (comma-separated, e.g., 01,02,04)
+  --resume              Resume interrupted processing (default behavior)
+  --force-rebuild       Clear all extraction logs and rebuild from scratch
+  --dry-run             Show what would be processed without doing it
+  --verbose             Enable verbose logging
+  --no-cleanup          Skip cleanup of temporary files
+  -h, --help            Show help message and exit
+```
+
+**Examples:**
+```bash
+# Normal processing (resumes automatically)
+python notebooks/06a_extract_zip_files.py
+
+# Process specific states only
+python notebooks/06a_extract_zip_files.py --states 01,02,04
+
+# Force complete rebuild (when new data found)
+python notebooks/06a_extract_zip_files.py --force-rebuild
+```
+
+### Script 06b: Convert Shapefiles to GeoPackage
+
+```bash
+# Basic usage
+python notebooks/06b_convert_shapefiles_to_gpkg.py
+
+# Available options:
+python notebooks/06b_convert_shapefiles_to_gpkg.py [OPTIONS]
+
+Options:
+  --config PATH          Use custom configuration file (default: config.json)
+  --products NAMES       Process specific products only (comma-separated)
+  --resume              Resume interrupted processing (default behavior)
+  --force-rebuild       Clear all conversion logs and rebuild from scratch
+  --dry-run             Show what would be processed without doing it
+  --verbose             Enable verbose logging
+  --use-geopandas       Use GeoPandas instead of ogr2ogr for conversion
+  --encoding ENCODING    Encoding to use for shapefile attribute data (default: UTF-8)
+  --max-workers N        Maximum number of worker threads (default: 4)
+  -h, --help            Show help message and exit
+```
+
+**Examples:**
+```bash
+# Normal processing (resumes automatically)
+python notebooks/06b_convert_shapefiles_to_gpkg.py
+
+# Process specific products only
+python notebooks/06b_convert_shapefiles_to_gpkg.py --products FRD_01001C_Shapefiles,FRD_01003C_Shapefiles
+
+# Force complete rebuild (when new data found)
+python notebooks/06b_convert_shapefiles_to_gpkg.py --force-rebuild
+
+# Use GeoPandas instead of ogr2ogr (default)
+python notebooks/06b_convert_shapefiles_to_gpkg.py --use-geopandas
+
+# Specify encoding for handling special characters
+python notebooks/06b_convert_shapefiles_to_gpkg.py --encoding latin-1
+```
+
+### Script 06: Legacy Extract and Merge (Combined)
+
+```bash
+# Basic usage (legacy)
 python notebooks/06_extract_and_merge_shapefiles.py
 
 # Available options:
@@ -181,29 +268,7 @@ Options:
   -h, --help            Show help message and exit
 ```
 
-**Examples:**
-```bash
-# Normal processing (resumes automatically)
-python notebooks/06_extract_and_merge_shapefiles.py
-
-# Process specific states only
-python notebooks/06_extract_and_merge_shapefiles.py --states 01,02,04
-
-# Force complete rebuild (when new data found)
-python notebooks/06_extract_and_merge_shapefiles.py --force-rebuild
-
-# Force rebuild specific states only
-python notebooks/06_extract_and_merge_shapefiles.py --force-rebuild --states 01,02
-
-# Dry run to see what would be processed
-python notebooks/06_extract_and_merge_shapefiles.py --dry-run
-
-# Verbose logging for debugging
-python notebooks/06_extract_and_merge_shapefiles.py --verbose
-
-# Keep temporary files for inspection
-python notebooks/06_extract_and_merge_shapefiles.py --no-cleanup
-```
+**Note:** The legacy script combines extraction and merging in one step. The new two-step process (06a + 06b) is recommended for better control and error handling.
 
 ## Common Workflows
 
@@ -213,13 +278,15 @@ python notebooks/06_extract_and_merge_shapefiles.py --no-cleanup
 python notebooks/05_download_shapefiles.py --limit 10
 
 # 2. Test extraction on specific state
-python notebooks/06_extract_and_merge_shapefiles.py --states 01 --verbose
+python notebooks/06a_extract_zip_files.py --states 01 --verbose
+python notebooks/06b_convert_shapefiles_to_gpkg.py --verbose
 
 # 3. If tests successful, download all
 python notebooks/05_download_shapefiles.py
 
-# 4. Extract and merge all
-python notebooks/06_extract_and_merge_shapefiles.py
+# 4. Extract and process all
+python notebooks/06a_extract_zip_files.py
+python notebooks/06b_convert_shapefiles_to_gpkg.py
 ```
 
 ### Handling New Data Updates
@@ -227,37 +294,49 @@ python notebooks/06_extract_and_merge_shapefiles.py
 # When script 04 finds new communities or script 05 downloads new files:
 
 # Option 1: Force rebuild everything
-python notebooks/06_extract_and_merge_shapefiles.py --force-rebuild
+python notebooks/06a_extract_zip_files.py --force-rebuild
+python notebooks/06b_convert_shapefiles_to_gpkg.py --force-rebuild
 
-# Option 2: Force rebuild specific states only
-python notebooks/06_extract_and_merge_shapefiles.py --force-rebuild --states 01,02,04
+# Option 2: Force rebuild specific states/products only
+python notebooks/06a_extract_zip_files.py --force-rebuild --states 01,02,04
+python notebooks/06b_convert_shapefiles_to_gpkg.py --force-rebuild
 
 # Option 3: Check what would be rebuilt (dry run)
-python notebooks/06_extract_and_merge_shapefiles.py --force-rebuild --dry-run
+python notebooks/06a_extract_zip_files.py --force-rebuild --dry-run
+python notebooks/06b_convert_shapefiles_to_gpkg.py --force-rebuild --dry-run
 ```
 
 ### Troubleshooting and Debugging
 ```bash
 # Check what would be processed without doing it
-python notebooks/06_extract_and_merge_shapefiles.py --dry-run --verbose
+python notebooks/06a_extract_zip_files.py --dry-run --verbose
+python notebooks/06b_convert_shapefiles_to_gpkg.py --dry-run --verbose
 
 # Process with detailed logging and keep temp files
-python notebooks/06_extract_and_merge_shapefiles.py --verbose --no-cleanup
+python notebooks/06a_extract_zip_files.py --verbose --no-cleanup
+python notebooks/06b_convert_shapefiles_to_gpkg.py --verbose
 
-# Process specific problematic state with full logging
-python notebooks/06_extract_and_merge_shapefiles.py --states 01 --verbose --no-cleanup
+# Process specific problematic state/product with full logging
+python notebooks/06a_extract_zip_files.py --states 01 --verbose --no-cleanup
+python notebooks/06b_convert_shapefiles_to_gpkg.py --verbose
+
+# Handle encoding issues with special characters
+python notebooks/06b_convert_shapefiles_to_gpkg.py --encoding latin-1 --verbose
 ```
 
 ### Production Workflows
 ```bash
 # Resume normal processing (default behavior)
-python notebooks/06_extract_and_merge_shapefiles.py
+python notebooks/06a_extract_zip_files.py
+python notebooks/06b_convert_shapefiles_to_gpkg.py
 
 # Process specific states in production
-python notebooks/06_extract_and_merge_shapefiles.py --states 01,02,04,05
+python notebooks/06a_extract_zip_files.py --states 01,02,04,05
+python notebooks/06b_convert_shapefiles_to_gpkg.py
 
 # Full rebuild for data refresh
-python notebooks/06_extract_and_merge_shapefiles.py --force-rebuild
+python notebooks/06a_extract_zip_files.py --force-rebuild
+python notebooks/06b_convert_shapefiles_to_gpkg.py --force-rebuild
 ```
 
 ## Configuration
@@ -279,12 +358,15 @@ cp config.sample.json config.json
   "processing": {
     "extraction_base_path": "E:\\FEMA_EXTRACTED",
     "merged_output_path": "E:\\FEMA_MERGED",
+    "shapefile_to_gpkg_path": "E:\\FEMA_SHAPEFILE_TO_GPKG",
     "temp_directory": "E:\\FEMA_TEMP",
     "target_crs": "EPSG:4326",
     "chunk_size_features": 10000,
     "memory_limit_mb": 2048,
     "parallel_processing": true,
-    "max_workers": 4
+    "max_workers": 4,
+    "use_geopandas": false,
+    "shapefile_encoding": "UTF-8"
   },
   "validation": {
     "geometry_validation": true,
@@ -308,9 +390,12 @@ cp config.sample.json config.json
 - `download.chunk_size_bytes`: Download chunk size (default: 8KB)
 - `download.timeout_seconds`: Request timeout (default: 30s)
 - `processing.extraction_base_path`: Temporary extraction directory
-- `processing.merged_output_path`: Output directory for merged GPKG files
+- `processing.merged_output_path`: Legacy output directory for merged GPKG files
+- `processing.shapefile_to_gpkg_path`: Output directory for converted GPKG files
 - `processing.target_crs`: Target coordinate system (default: EPSG:4326)
 - `processing.memory_limit_mb`: Memory limit for processing (default: 2048MB)
+- `processing.use_geopandas`: Use GeoPandas instead of ogr2ogr (default: false)
+- `processing.shapefile_encoding`: Encoding for shapefile attributes (default: UTF-8)
 - `validation.geometry_validation`: Enable geometry validation
 - `validation.fix_invalid_geometries`: Automatically fix invalid geometries
 - `database.path`: SQLite database location
@@ -328,9 +413,11 @@ The SQLite database (`meta_results/flood_risk_shapefiles.db`) contains:
 - **`shapefiles`**: Flood risk shapefile metadata
 - **`request_log`**: API call tracking and error logging
 - **`download_log`**: Download tracking (from script 05)
-- **`extraction_log`**: ZIP extraction tracking (from script 06)
-- **`shapefile_processing_log`**: GPKG creation tracking (from script 06)
-- **`shapefile_contributions`**: Individual shapefile contributions (from script 06)
+- **`extraction_log`**: Legacy ZIP extraction tracking (from script 06)
+- **`extraction_06a_log`**: ZIP extraction tracking (from script 06a)
+- **`shapefile_processing_log`**: Legacy GPKG creation tracking (from script 06)
+- **`conversion_06b_log`**: GPKG conversion tracking (from script 06b)
+- **`shapefile_contributions`**: Legacy individual shapefile contributions (from script 06)
 
 ### Key Fields
 - `product_ID`: Unique FEMA product identifier
@@ -465,18 +552,68 @@ Example:
 https://msc.fema.gov/portal/downloadProduct?productTypeID=FLOOD_RISK_PRODUCT&productSubTypeID=FLOOD_RISK_DB&productID=FRD_03150201_shapefiles_20140221
 ```
 
-## Extraction and Merging Functionality
+## Extraction and Processing Functionality
 
-### Automated Processing
-The [`06_extract_and_merge_shapefiles.py`](notebooks/06_extract_and_merge_shapefiles.py:1) script processes downloaded ZIP files:
+### Two-Step Processing (Recommended)
+
+#### Step 1: ZIP Extraction
+The [`06a_extract_zip_files.py`](notebooks/06a_extract_zip_files.py:1) script extracts downloaded ZIP files:
 
 **Features:**
-- **ZIP Extraction**: Extracts all downloaded ZIP files to temporary directories
-- **Shapefile Categorization**: Identifies and categorizes 13 shapefile types
-- **State-based Merging**: Merges shapefiles by type within each state
-- **Metadata Enrichment**: Adds geographic traceability columns
-- **GPKG Output**: Creates consolidated GeoPackage files
-- **Validation**: Comprehensive integrity and geometry validation
+- **ZIP Extraction**: Extracts all downloaded ZIP files to organized directories
+- **Duplicate Prevention**: Uses SQL query to avoid processing duplicate products
+- **Detailed Logging**: Tracks each shapefile found within ZIP files
+- **Simplified Structure**: Organizes by product name rather than state/county
+
+**Output Structure:**
+```
+E:\FEMA_EXTRACTED\
+├── FRD_01001C_Shapefiles\        # Product name as folder
+│   ├── S_CSLF_Ar.shp
+│   ├── S_CSLF_Ar.dbf
+│   └── ... (all extracted files)
+├── FRD_03150201_shapefiles_20140221\
+└── ... (all products)
+```
+
+**Processing Tracking:**
+- Creates `extraction_06a_log` table with detailed shapefile tracking
+- Records both relative path within ZIP and shapefile name
+- Enables resume capability for interrupted processing
+
+#### Step 2: Shapefile Conversion
+The [`06b_convert_shapefiles_to_gpkg.py`](notebooks/06b_convert_shapefiles_to_gpkg.py:1) script converts shapefiles to GeoPackage:
+
+**Features:**
+- **ogr2ogr Integration**: Uses ogr2ogr by default for robust conversion
+- **Encoding Handling**: Supports different encodings for problematic files
+- **Thread-Safe Processing**: Creates thread-local database connections
+- **Parallel Processing**: Optional multi-threaded conversion
+- **Detailed Logging**: Tracks conversion success/failure
+
+**Output Structure:**
+```
+E:\FEMA_SHAPEFILE_TO_GPKG\
+├── FRD_01001C_Shapefiles\        # Product name as folder
+│   ├── S_CSLF_Ar.gpkg
+│   ├── S_FRD_Proj_Ar.gpkg
+│   └── ... (all converted files)
+├── FRD_03150201_shapefiles_20140221\
+└── ... (all products)
+```
+
+**Processing Tracking:**
+- Creates `conversion_06b_log` table with conversion tracking
+- Records source shapefile and destination GPKG paths
+- Enables resume capability for interrupted processing
+
+### Legacy Combined Processing
+The [`06_extract_and_merge_shapefiles.py`](notebooks/06_extract_and_merge_shapefiles.py:1) script combines extraction and merging (legacy):
+
+**Features:**
+- **Combined Workflow**: Extracts and merges in one step
+- **State-based Organization**: Organizes by state rather than product
+- **Shapefile Merging**: Combines shapefiles by type within each state
 
 **Output Structure:**
 ```
@@ -490,11 +627,7 @@ E:\FEMA_MERGED\
 └── ... (all 57 states/territories)
 ```
 
-**Processing Tracking:**
-- Creates `extraction_log`, `shapefile_processing_log`, and `shapefile_contributions` tables
-- Tracks extraction success/failure for each ZIP file
-- Records processing statistics and file sizes
-- Enables resume capability for interrupted processing
+**Note:** The legacy script is maintained for backward compatibility, but the two-step process is recommended for better control and error handling.
 
 ## Development Standards
 

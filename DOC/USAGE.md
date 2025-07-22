@@ -11,11 +11,17 @@
 
 2. **Collect and Download Shapefiles**:
    ```bash
-   # Collect metadata
+   # Collect shapefile metadata
    python notebooks/04_get_flood_risk_shapefiles.py
    
-   # Download files (use --limit N for testing)
+   # OR collect NFHL State GDB data
+   python notebooks/04_get_nfhl_data_state_gdb.py
+   
+   # Download shapefile files (use --limit N for testing)
    python notebooks/05_download_shapefiles.py
+   
+   # OR download NFHL State GDB files
+   python notebooks/05_download_nfhl_gdb.py
    ```
 
 3. **Process Shapefiles (Recommended Four-step Process)**:
@@ -33,7 +39,80 @@
    python notebooks/06d_merge_gpkg_files.py
    ```
 
+4. **Process NFHL State GDB Files**:
+   ```bash
+   # Extract NFHL GDB ZIP files
+   python notebooks/06a_extract_nfhl_zip_files.py
+   
+   # With specific options:
+   python notebooks/06a_extract_nfhl_zip_files.py --states 01,02,04
+   python notebooks/06a_extract_nfhl_zip_files.py --force-rebuild
+   
+   # Convert NFHL GDB layers to GeoPackage (requires OSGeo4W)
+   python notebooks/06b_convert_nfhl_shapefiles_to_gpkg.py
+   
+   # Extract specific layers (default is S_FLD_HAZ_AR)
+   python notebooks/06b_convert_nfhl_shapefiles_to_gpkg.py --layers S_FLD_HAZ_AR,S_WTR_AR
+   
+   # Process specific states
+   python notebooks/06b_convert_nfhl_shapefiles_to_gpkg.py --products NFHL_01_20250709,NFHL_02_20250709
+   ```
+
    **Note**: Steps 2 and 4 require ogr2ogr from OSGeo4W. Run from OSGeo4W console.
+
+## NFHL State GDB Data Collection and Download
+
+### Collection (04_get_nfhl_data_state_gdb.py)
+
+The `04_get_nfhl_data_state_gdb.py` script collects National Flood Hazard Layer (NFHL) State Geodatabase (GDB) data:
+
+- Processes data at the state level only (not counties/communities)
+- Searches for items with `product_SUBTYPE_ID` = "NFHL_STATE_DATA" in the FEMA portal
+- Stores data in a separate database: `meta_results/flood_risk_nfhl_gdb.db`
+- Automatically skips states that have already been processed
+- Provides resume capability for interrupted runs
+
+This script is an alternative to the shapefile collection process and focuses specifically on state-level GDB data.
+
+### Download (05_download_nfhl_gdb.py)
+
+The `05_download_nfhl_gdb.py` script downloads the NFHL State GDB files:
+
+- Downloads GDB ZIP files using the correct FEMA portal URL format
+- Organizes files in a state-level folder structure: `{nfhl_base_path}\{state_code}\`
+- Tracks downloads in a `nfhl_download_log` table
+- Supports resume capability for interrupted downloads
+- Provides detailed progress tracking and statistics
+
+Command line options:
+```bash
+# Download all NFHL State GDB files
+python notebooks/05_download_nfhl_gdb.py
+
+# Download only first 5 files (for testing)
+python notebooks/05_download_nfhl_gdb.py --limit 5
+
+# Use custom configuration file
+python notebooks/05_download_nfhl_gdb.py --config custom_config.json
+```
+
+### Configuration
+
+Both scripts use the configuration file (default: `config.json`) for database paths and download settings:
+
+```json
+{
+  "database": {
+    "path": "meta_results/flood_risk_shapefiles.db",
+    "nfhl_path": "meta_results/flood_risk_nfhl_gdb.db"
+  },
+  "download": {
+    "base_path": "E:\\FEMA_DOWNLOAD",
+    "nfhl_base_path": "E:\\FEMA_NFHL_DOWNLOAD",
+    ...
+  }
+}
+```
 
 ## Common Command Line Options
 

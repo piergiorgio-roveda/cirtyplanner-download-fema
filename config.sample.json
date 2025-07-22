@@ -1,12 +1,14 @@
 {
   "download": {
     "base_path": "E:\\FEMA_DOWNLOAD",
+    "nfhl_base_path": "E:\\FEMA_NFHL_DOWNLOAD",
     "rate_limit_seconds": 0.2,
     "chunk_size_bytes": 8192,
     "timeout_seconds": 30
   },
   "processing": {
     "extraction_base_path": "E:\\FEMA_EXTRACTED",
+    "nfhl_extraction_base_path": "E:\\FEMA_NFHL_EXTRACTED",
     "merged_output_path": "E:\\FEMA_MERGED",
     "temp_directory": "E:\\FEMA_TEMP",
     "target_crs": "EPSG:4326",
@@ -22,7 +24,8 @@
     "coordinate_precision": 6
   },
   "database": {
-    "path": "meta_results/flood_risk_shapefiles.db"
+    "path": "meta_results/flood_risk_shapefiles.db",
+    "nfhl_path": "meta_results/flood_risk_nfhl_gdb.db"
   },
   "api": {
     "base_url": "https://msc.fema.gov",

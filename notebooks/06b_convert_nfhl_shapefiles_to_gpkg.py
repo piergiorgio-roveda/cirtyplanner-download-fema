@@ -44,6 +44,7 @@ import argparse
 import logging
 import subprocess
 import uuid
+import time
 from pathlib import Path
 from datetime import datetime
 import psutil
@@ -327,8 +328,35 @@ def convert_gdb_to_gpkg(source_dir, dest_path, temp_dir, product_name, layer_nam
         # Create destination directory
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
         
-        # Move the file from temporary location to final destination
-        shutil.move(temp_dest_path, dest_path)
+        # Add a small delay to allow the system to release any file locks
+        time.sleep(1)
+        
+        # Try to move the file with retries
+        max_retries = 3
+        retry_delay = 2  # seconds
+        
+        for retry in range(max_retries):
+            try:
+                # Try to move the file
+                shutil.move(temp_dest_path, dest_path)
+                break  # Success, exit the retry loop
+            except PermissionError as e:
+                if retry < max_retries - 1:  # Not the last retry
+                    print(f"File access error, retrying in {retry_delay} seconds... (Attempt {retry+1}/{max_retries})")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    # Last retry failed, try to copy instead of move
+                    try:
+                        print("Move failed, trying to copy file instead...")
+                        shutil.copy2(temp_dest_path, dest_path)
+                        # If copy succeeds, try to remove the temp file, but don't fail if we can't
+                        try:
+                            os.remove(temp_dest_path)
+                        except:
+                            pass
+                    except Exception as copy_error:
+                        raise ConversionError(f"Failed to copy file after move attempts: {str(copy_error)}")
         
         return True
     except subprocess.CalledProcessError as e:

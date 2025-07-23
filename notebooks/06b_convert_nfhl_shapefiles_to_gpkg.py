@@ -190,7 +190,7 @@ def create_processing_tables(conn):
     conn.commit()
 
 def get_gdb_files_to_convert(config, conn, target_products=None, target_layers=None):
-    """Get list of GDB files and layers to convert from nfhl_extraction_log."""
+    """Get list of GDB files to convert from nfhl_download_log."""
     extraction_base = config['processing'].get('nfhl_extraction_base_path', "E:\\FEMA_NFHL_EXTRACTED")
     gpkg_base = config['processing'].get('nfhl_gpkg_path', "E:\\FEMA_NFHL_GPKG")
     
@@ -201,15 +201,15 @@ def get_gdb_files_to_convert(config, conn, target_products=None, target_layers=N
     cursor = conn.cursor()
     
     # Get already converted GDB files and layers
-    cursor.execute('SELECT gdb_path, layer_name FROM nfhl_conversion_log WHERE conversion_success = 1')
+    cursor.execute('SELECT product_name, layer_name FROM nfhl_conversion_log WHERE conversion_success = 1')
     already_converted = set((row[0], row[1]) for row in cursor.fetchall())
     
-    # Build query to get GDB files to convert
+    # Build query to get GDB files to convert from download log
     query = '''
-        SELECT product_name, extracted_path, file_name
-        FROM nfhl_extraction_log
-        WHERE extraction_success = 1
-        AND file_name IS NOT NULL
+        SELECT product_name, file_path
+        FROM nfhl_download_log
+        WHERE download_success = 1
+        AND file_path IS NOT NULL
     '''
     
     params = []
@@ -222,145 +222,93 @@ def get_gdb_files_to_convert(config, conn, target_products=None, target_layers=N
     results = cursor.fetchall()
     
     gdb_files_to_convert = []
-    for product_name, extracted_path, file_name in results:
-        # Skip if not a GDB file/directory
-        if not (file_name.lower().endswith('.gdb') or '.gdb/' in extracted_path.lower() or '.gdb\\' in extracted_path.lower()):
-            continue
-            
-        # Get the GDB directory path
-        if '.gdb/' in extracted_path.lower() or '.gdb\\' in extracted_path.lower():
-            # Extract the GDB directory from the path
-            path_parts = extracted_path.split('/')
-            gdb_dir = None
-            for i, part in enumerate(path_parts):
-                if '.gdb' in part.lower():
-                    gdb_dir = '/'.join(path_parts[:i+1])
-                    break
-            
-            if not gdb_dir:
-                # Try with backslash
-                path_parts = extracted_path.split('\\')
-                for i, part in enumerate(path_parts):
-                    if '.gdb' in part.lower():
-                        gdb_dir = '\\'.join(path_parts[:i+1])
-                        break
-            
-            if not gdb_dir:
-                continue
-                
-            source_dir = os.path.join(extraction_base, product_name, gdb_dir)
-        else:
-            # Direct GDB file
-            source_dir = os.path.join(extraction_base, product_name, extracted_path)
+    for product_name, file_path in results:
+        # For each product, we'll create a standard GDB path
+        # The GDB path follows the pattern: {extraction_base}/{product_name}/{product_name}.gdb
+        gdb_path = os.path.join(extraction_base, product_name, f"{product_name}.gdb")
         
         # Process each target layer
         for layer_name in target_layers:
-            # Build full source path (we'll use the directory path directly in the ogr2ogr command)
-            source_path = source_dir
-            
-            # Build destination path
-            gpkg_name = f"{product_name}_{layer_name}.gpkg"
-            dest_path = os.path.join(gpkg_base, product_name, gpkg_name)
-            
             # Skip if already converted
-            if (source_path, layer_name) in already_converted:
+            if (product_name, layer_name) in already_converted:
                 continue
                 
+            # Build destination path
+            gpkg_name = f"_{product_name}_{layer_name}.gpkg"
+            dest_path = os.path.join(gpkg_base, gpkg_name)
+            
             gdb_files_to_convert.append({
                 'product_name': product_name,
-                'source_path': source_path,
+                'gdb_path': gdb_path,
                 'dest_path': dest_path,
-                'layer_name': layer_name,
-                'gdb_dir': source_dir
+                'layer_name': layer_name
             })
     
     return gdb_files_to_convert
 
-def convert_gdb_to_gpkg(source_dir, dest_path, temp_dir, product_name, layer_name, strict_mode=False):
+def convert_gdb_to_gpkg(gdb_path, dest_path, temp_dir, product_name, layer_name, strict_mode=False):
     """Convert GDB layer to GPKG using ogr2ogr."""
     try:
         # Create temporary directory if it doesn't exist
         os.makedirs(temp_dir, exist_ok=True)
         
-        # Create a unique temporary destination path using product name and UUID
+        # Create a unique temporary destination path
         unique_id = str(uuid.uuid4())[:8]  # Use first 8 characters of UUID
-        temp_filename = f"{product_name}_{layer_name}_{unique_id}_{os.path.basename(dest_path)}"
+        temp_filename = f"_{unique_id}_{product_name}_{layer_name}.gpkg"
         temp_dest_path = os.path.join(temp_dir, temp_filename)
         
-        # Build ogr2ogr command - use a different approach for GDB files
+        # Build simple ogr2ogr command for GDB files
         cmd = [
             'ogr2ogr',
             '-f', 'GPKG',
             '-nlt', 'PROMOTE_TO_MULTI',  # Convert to multi-geometries
             '-nln', layer_name,  # Layer name
             '-a_srs', 'EPSG:4326',  # Assign output coordinate system
-            '--config', 'OGR_ENABLE_PARTIAL_REPROJECTION', 'TRUE',  # Enable partial reprojection
-            '--config', 'CPL_TMPDIR', temp_dir,  # Set temp directory
-            '-lco', 'ENCODING=UTF-8',  # Force UTF-8 output encoding
-            '-where', "1=1",  # Select all features
+            '-skipfailures',  # Skip failures
+            temp_dest_path,  # Destination
+            gdb_path,  # Source GDB
+            layer_name  # Layer to extract
         ]
         
-        # Only skip failures in non-strict mode
-        if not strict_mode:
-            cmd.append('-skipfailures')
-            
-        # Add destination
-        cmd.append(temp_dest_path)
-        
-        # Add source GDB directory
-        cmd.append(source_dir)
-        
-        # Add layer name as separate parameter
-        cmd.append(layer_name)
-        
         # Execute command
+        print(f"Converting {layer_name} from {gdb_path}")
+        print(f"Command: {' '.join(cmd)}")
+        
         result = subprocess.run(
             cmd,
             capture_output=True,
-            text=True,
-            check=True
+            text=True
         )
         
-        # In strict mode, check for warnings in stderr
-        if strict_mode and result.stderr:
-            raise StrictModeError(f"Warnings detected in strict mode: {result.stderr}")
+        if result.returncode != 0:
+            raise ConversionError(f"ogr2ogr failed: {result.stderr}")
         
-        # Create destination directory
+        # Create destination directory if needed
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
         
-        # Add a small delay to allow the system to release any file locks
+        # Move the file to final destination
+        print(f"Moving {temp_dest_path} to {dest_path}")
+        
+        # Add a small delay before moving
         time.sleep(1)
         
-        # Try to move the file with retries
-        max_retries = 3
-        retry_delay = 2  # seconds
-        
-        for retry in range(max_retries):
+        # Try to move the file
+        try:
+            shutil.move(temp_dest_path, dest_path)
+        except (PermissionError, OSError) as e:
+            # If move fails, try to copy
+            print(f"Move failed: {str(e)}, trying to copy instead")
             try:
-                # Try to move the file
-                shutil.move(temp_dest_path, dest_path)
-                break  # Success, exit the retry loop
-            except PermissionError as e:
-                if retry < max_retries - 1:  # Not the last retry
-                    print(f"File access error, retrying in {retry_delay} seconds... (Attempt {retry+1}/{max_retries})")
-                    time.sleep(retry_delay)
-                    retry_delay *= 2  # Exponential backoff
-                else:
-                    # Last retry failed, try to copy instead of move
-                    try:
-                        print("Move failed, trying to copy file instead...")
-                        shutil.copy2(temp_dest_path, dest_path)
-                        # If copy succeeds, try to remove the temp file, but don't fail if we can't
-                        try:
-                            os.remove(temp_dest_path)
-                        except:
-                            pass
-                    except Exception as copy_error:
-                        raise ConversionError(f"Failed to copy file after move attempts: {str(copy_error)}")
+                shutil.copy2(temp_dest_path, dest_path)
+                # Try to remove the temp file, but don't fail if we can't
+                try:
+                    os.remove(temp_dest_path)
+                except:
+                    pass
+            except Exception as copy_error:
+                raise ConversionError(f"Failed to copy file: {str(copy_error)}")
         
         return True
-    except subprocess.CalledProcessError as e:
-        raise ConversionError(f"ogr2ogr failed: {e.stderr}")
     except Exception as e:
         raise ConversionError(f"Error during conversion or file move: {str(e)}")
 
@@ -371,26 +319,24 @@ def convert_gdb_layer_to_gpkg(gdb_info, config, logger):
     
     try:
         product_name = gdb_info['product_name']
-        source_path = gdb_info['source_path']
+        gdb_path = gdb_info['gdb_path']
         dest_path = gdb_info['dest_path']
         layer_name = gdb_info['layer_name']
-        gdb_dir = gdb_info['gdb_dir']
         temp_dir = config.get('processing', {}).get('temp_conversion_path', 'D:\\git\\cityplanner-desktop\\download-fema\\.TMP')
         strict_mode = config.get('processing', {}).get('strict_mode', False)
         
         logger.info(f"Converting: {layer_name} from {product_name} GDB")
         
         # Check if source GDB directory exists
-        if not os.path.exists(gdb_dir):
-            raise ConversionError(f"Source GDB directory not found: {gdb_dir}")
+        if not os.path.exists(gdb_path):
+            raise ConversionError(f"Source GDB directory not found: {gdb_path}")
         
         # Convert using ogr2ogr with temporary directory
         logger.debug(f"  Using ogr2ogr for GDB conversion")
         logger.debug(f"  Using temporary directory: {temp_dir}")
-        logger.debug(f"  Strict mode: {'enabled' if strict_mode else 'disabled'}")
         logger.debug(f"  Layer: {layer_name}")
-        logger.debug(f"  GDB directory: {gdb_dir}")
-        convert_gdb_to_gpkg(gdb_dir, dest_path, temp_dir, product_name, layer_name, strict_mode)
+        logger.debug(f"  GDB path: {gdb_path}")
+        convert_gdb_to_gpkg(gdb_path, dest_path, temp_dir, product_name, layer_name, strict_mode)
         
         # Create thread-local database connection
         thread_conn = get_db_connection(config)
@@ -401,14 +347,14 @@ def convert_gdb_layer_to_gpkg(gdb_info, config, logger):
             INSERT INTO nfhl_conversion_log
             (product_name, gdb_path, layer_name, gpkg_path, conversion_success)
             VALUES (?, ?, ?, ?, ?)
-        ''', (product_name, gdb_dir, layer_name, dest_path, True))
+        ''', (product_name, gdb_path, layer_name, dest_path, True))
         thread_conn.commit()
         
         logger.info(f"  [SUCCESS] Converted {layer_name} to {os.path.basename(dest_path)}")
         
         return {
             'success': True,
-            'source_path': source_path,
+            'gdb_path': gdb_path,
             'dest_path': dest_path,
             'layer_name': layer_name
         }
@@ -428,7 +374,7 @@ def convert_gdb_layer_to_gpkg(gdb_info, config, logger):
                 INSERT INTO nfhl_conversion_log
                 (product_name, gdb_path, layer_name, gpkg_path, conversion_success, error_message)
                 VALUES (?, ?, ?, ?, ?, ?)
-            ''', (product_name, gdb_dir, layer_name, dest_path, False, error_msg))
+            ''', (product_name, gdb_path, layer_name, dest_path, False, error_msg))
             thread_conn.commit()
         except Exception as db_error:
             logger.error(f"  Database error: {db_error}")
@@ -436,7 +382,7 @@ def convert_gdb_layer_to_gpkg(gdb_info, config, logger):
         return {
             'success': False,
             'error': error_msg,
-            'source_path': source_path,
+            'gdb_path': gdb_path,
             'layer_name': layer_name
         }
     finally:
@@ -456,7 +402,22 @@ def convert_all_gdb_layers(config, conn, target_products=None, target_layers=Non
         logger.warning("No GDB layers found to convert")
         return {'converted': 0, 'failed': 0, 'total': 0}
     
-    logger.info(f"Found {total_files} GDB layers to convert")
+    # Count unique GDBs (by product_name)
+    unique_gdbs = set(gdb_file['product_name'] for gdb_file in gdb_files)
+    total_gdbs = len(unique_gdbs)
+    
+    # Count layers per GDB
+    layers_per_gdb = {}
+    for gdb_file in gdb_files:
+        product_name = gdb_file['product_name']
+        if product_name not in layers_per_gdb:
+            layers_per_gdb[product_name] = 0
+        layers_per_gdb[product_name] += 1
+    
+    logger.info(f"Found {total_gdbs} unique GDBs with {total_files} total layers to convert")
+    logger.info(f"Layers per GDB: Min={min(layers_per_gdb.values()) if layers_per_gdb else 0}, "
+                f"Max={max(layers_per_gdb.values()) if layers_per_gdb else 0}, "
+                f"Avg={sum(layers_per_gdb.values())/len(layers_per_gdb) if layers_per_gdb else 0:.1f}")
     
     # Setup conversion directory
     gpkg_base = config['processing'].get('nfhl_gpkg_path', "E:\\FEMA_NFHL_GPKG")
@@ -510,7 +471,12 @@ def convert_all_gdb_layers(config, conn, target_products=None, target_layers=Non
                 # Memory management
                 if i % 10 == 0:
                     memory_monitor.check_memory_usage()
-                    logger.info(f"Progress: {i}/{total_files} - Converted: {converted_count}, Failed: {failed_count}")
+                    # Count unique GDBs processed so far
+                    processed_gdbs = set()
+                    for j in range(min(i, len(gdb_files))):
+                        processed_gdbs.add(gdb_files[j]['product_name'])
+                    logger.info(f"Progress: {i}/{total_files} layers from {len(processed_gdbs)}/{total_gdbs} GDBs - "
+                                f"Converted: {converted_count}, Failed: {failed_count}")
     else:
         # Sequential processing
         for i, gdb_file in enumerate(gdb_files, 1):
@@ -539,7 +505,12 @@ def convert_all_gdb_layers(config, conn, target_products=None, target_layers=Non
             # Memory management
             if i % 10 == 0:
                 memory_monitor.check_memory_usage()
-                logger.info(f"Progress: {i}/{total_files} - Converted: {converted_count}, Failed: {failed_count}")
+                # Count unique GDBs processed so far
+                processed_gdbs = set()
+                for j in range(min(i, len(gdb_files))):
+                    processed_gdbs.add(gdb_files[j]['product_name'])
+                logger.info(f"Progress: {i}/{total_files} layers from {len(processed_gdbs)}/{total_gdbs} GDBs - "
+                            f"Converted: {converted_count}, Failed: {failed_count}")
     
     logger.info(f"Conversion complete: {converted_count} successful, {failed_count} failed")
     
